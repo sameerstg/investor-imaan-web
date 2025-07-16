@@ -1,7 +1,5 @@
-// app/api/stocks/route.ts
 import puppeteer from 'puppeteer';
 
-// In-memory cache
 interface Cache {
   stocks: Array<{
     company: string;
@@ -114,10 +112,10 @@ export async function GET() {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
-  } catch (error: any) {
+  } catch (error:any) {
     console.error('Error fetching stock data:', {
-      message: error.message,
-      stack: error.stack,
+      message: error?.message,
+      stack: error?.stack,
     });
     // Return cached data if available and error occurs
     if (cache.stocks.length > 0) {

@@ -160,11 +160,11 @@ export default function Home() {
                       className={`px-4 py-2 text-left text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors touch-none ${
                         sortConfig?.key === key ? 'bg-gray-200 font-bold' : ''
                       }`}
-                      aria-sort={
-                        sortConfig?.key === key
-                          ? sortConfig.direction
-                          : 'none'
-                      }
+                      // aria-sort={
+                      //   sortConfig?.key === key
+                      //     ? sortConfig.direction
+                      //     : 'none'
+                      // }
                     >
                       <div className="flex items-center">
                         <svg
