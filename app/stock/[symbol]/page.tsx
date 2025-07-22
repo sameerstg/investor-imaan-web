@@ -1,7 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { GetSymbolTimeSeriesDay, GetSymbolTimeSeriesAllTime, GetCompanyName, GetCompanyReports } from '@/methods/stocks';
+import { GetDayData, GetAllTimeData, GetCompanyName, GetCompanyReports } from '@/methods/stocks';
 import FinancialReports from '@/components/FinancialReports';
 import StockChart from '@/components/StockChart';
 
@@ -10,21 +10,25 @@ const StockDetailsPage: React.FC = () => {
   const [dayData, setDayData] = useState<TimeSeriesData[]>([]);
   const [allTimeData, setAllTimeData] = useState<TimeSeriesData[]>([]);
   const [companyName, setCompanyName] = useState<string>('Loading...');
-  const [reports, setReports] = useState<CompanyReport[]>([]);
-  const [timeRange, setTimeRange] = useState<'1D' | '1W' | '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'All'>('1D');
+  const [reports, setReports] = useState<CompanyReport | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
-      const [name, dayData, allTimeData, reportsData] = await Promise.all([
-        GetCompanyName(symbol),
-        GetSymbolTimeSeriesDay(symbol),
-        GetSymbolTimeSeriesAllTime(symbol),
-        GetCompanyReports(symbol),
-      ]);
-      setCompanyName(name);
-      setDayData(dayData as TimeSeriesData[]);
-      setAllTimeData(allTimeData as TimeSeriesData[]);
-      setReports(reportsData);
+      try {
+        const [name, dayData, allTimeData, reportsData] = await Promise.all([
+          GetCompanyName(symbol),
+          GetDayData(symbol),
+          GetAllTimeData(symbol),
+          GetCompanyReports(symbol),
+        ]);
+        setCompanyName(name);
+        setDayData(dayData as TimeSeriesData[]);
+        setAllTimeData(allTimeData as TimeSeriesData[]);
+        setReports(reportsData);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setReports({ tableHtml: '' }); // Fallback
+      }
     };
     fetchData();
   }, [symbol]);
@@ -37,8 +41,6 @@ const StockDetailsPage: React.FC = () => {
         companyName={companyName}
         dayData={dayData}
         allTimeData={allTimeData}
-        timeRange={timeRange}
-        setTimeRange={setTimeRange}
       />
       <FinancialReports reports={reports} />
     </div>
@@ -54,7 +56,5 @@ export interface TimeSeriesData {
 }
 
 export interface CompanyReport {
-  reportType: 'Annual' | 'Quarterly';
-  periodEnded: string;
-  postingDate: string;
+  tableHtml: string; // HTML string of the table
 }

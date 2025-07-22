@@ -1,5 +1,5 @@
 'use client';
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -25,12 +25,11 @@ interface StockChartProps {
   companyName: string;
   dayData: TimeSeriesData[];
   allTimeData: TimeSeriesData[];
-  timeRange: '1D' | '1W' | '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'All';
-  setTimeRange: (range: '1D' | '1W' | '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'All') => void;
 }
 
-const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, dayData, allTimeData, timeRange, setTimeRange }) => {
+const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, dayData, allTimeData }) => {
   const chartRef = useRef<any>(null);
+  const [timeRange, setTimeRange] = useState<'1D' | '1W' | '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'All'>('1D');
 
   // Aggregate data to reduce density
   const aggregateData = (data: TimeSeriesData[], isDayData: boolean): TimeSeriesData[] => {
