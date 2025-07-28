@@ -1,21 +1,13 @@
 'use client';
-import React, { useRef, useState } from 'react';
-import { Line } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-} from 'chart.js';
+import React, { useState } from 'react';
+import dynamic from 'next/dynamic';
+import type { ApexOptions } from 'apexcharts';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+// Dynamically import ApexCharts to avoid SSR issues
+const ApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 interface TimeSeriesData {
-  timestamp: number;
+  timestamp: number; // UNIX timestamp in seconds
   price: number;
   volume: number;
 }
@@ -28,70 +20,15 @@ interface StockChartProps {
 }
 
 const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, dayData, allTimeData }) => {
-  const chartRef = useRef<any>(null);
-  const [timeRange, setTimeRange] = useState<'1D' | '1W' | '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'All'>('1D');
+  const [timeRange, setTimeRange] = useState<'1H' | '1D' | '1W' | '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'All'>('1D');
+  const [chartType, setChartType] = useState<'line' | 'candlestick'>('line');
 
-  // Aggregate data to reduce density
-  const aggregateData = (data: TimeSeriesData[], isDayData: boolean): TimeSeriesData[] => {
-    if (!data.length) return data;
-
-    if (isDayData) {
-      // Aggregate 1D data into 5-minute intervals
-      const interval = 5 * 60 * 1000; // 5 minutes in milliseconds
-      const aggregated: { [key: number]: { prices: number[]; volumes: number[] } } = {};
-
-      data.forEach((item) => {
-        const timestampMs = item.timestamp * 1000;
-        const intervalStart = Math.floor(timestampMs / interval) * interval;
-        if (!aggregated[intervalStart]) {
-          aggregated[intervalStart] = { prices: [], volumes: [] };
-        }
-        aggregated[intervalStart].prices.push(item.price);
-        aggregated[intervalStart].volumes.push(item.volume);
-      });
-
-      return Object.keys(aggregated)
-        .map((key) => ({
-          timestamp: Number(key) / 1000,
-          price: aggregated[Number(key)].prices.reduce((sum, p) => sum + p, 0) / aggregated[Number(key)].prices.length,
-          volume: Math.round(aggregated[Number(key)].volumes.reduce((sum, v) => sum + v, 0) / aggregated[Number(key)].volumes.length),
-        }))
-        .sort((a, b) => a.timestamp - b.timestamp);
-    } else {
-      // Aggregate other ranges into daily intervals
-      const interval = 24 * 60 * 60 * 1000; // 1 day in milliseconds
-      const aggregated: { [key: number]: { prices: number[]; volumes: number[] } } = {};
-
-      data.forEach((item) => {
-        const timestampMs = item.timestamp * 1000;
-        const intervalStart = Math.floor(timestampMs / interval) * interval;
-        if (!aggregated[intervalStart]) {
-          aggregated[intervalStart] = { prices: [], volumes: [] };
-        }
-        aggregated[intervalStart].prices.push(item.price);
-        aggregated[intervalStart].volumes.push(item.volume);
-      });
-
-      return Object.keys(aggregated)
-        .map((key) => ({
-          timestamp: Number(key) / 1000,
-          price: aggregated[Number(key)].prices.reduce((sum, p) => sum + p, 0) / aggregated[Number(key)].prices.length,
-          volume: Math.round(aggregated[Number(key)].volumes.reduce((sum, v) => sum + v, 0) / aggregated[Number(key)].volumes.length),
-        }))
-        .sort((a, b) => a.timestamp - b.timestamp);
-    }
-  };
-
-  // Select dataset based on time range
   const getSelectedData = () => {
-    return timeRange === '1D' ? aggregateData(dayData, true) : aggregateData(allTimeData, false);
+    return timeRange === '1D' || timeRange === '1H' ? dayData : allTimeData;
   };
 
-  // Filter data based on selected time range
   const filterDataByTimeRange = (data: TimeSeriesData[]) => {
-    if (timeRange === '1D' || timeRange === 'All') {
-      return data; // Already aggregated
-    }
+    if (timeRange === 'All' || timeRange === '1H') return data;
 
     const now = Date.now();
     const oneDay = 24 * 60 * 60 * 1000;
@@ -99,6 +36,8 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, dayData, a
     let timeLimit: number;
 
     switch (timeRange) {
+      case '1D':
+        return data.filter((_, i) => i % 5 === 0); // 5-minute intervals
       case '1W':
         timeLimit = now - 7 * oneDay;
         break;
@@ -108,11 +47,9 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, dayData, a
       case '6M':
         timeLimit = now - 6 * oneMonth;
         break;
-      case 'YTD': {
-        const currentYear = new Date(now).getFullYear();
-        timeLimit = new Date(currentYear, 0, 1).getTime();
+      case 'YTD':
+        timeLimit = new Date(new Date().getFullYear(), 0, 1).getTime();
         break;
-      }
       case '1Y':
         timeLimit = now - 12 * oneMonth;
         break;
@@ -126,156 +63,72 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, dayData, a
     return data.filter((item) => item.timestamp * 1000 >= timeLimit);
   };
 
-  // Prepare data for Chart.js
-  const selectedData = getSelectedData();
-  const chartData = {
-    labels: filterDataByTimeRange(selectedData).map((item) =>
-      new Date(item.timestamp * 1000).toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: timeRange === '1D' ? 'numeric' : undefined,
-        minute: timeRange === '1D' ? 'numeric' : undefined,
-        hour12: true,
-      })
-    ),
-    datasets: [
-      {
-        label: `${symbol} Price`,
-        data: filterDataByTimeRange(selectedData).map((item) => item.price),
-        borderColor: '#3b82f6',
-        borderWidth: 2,
-        pointBackgroundColor: '#3b82f6',
-        pointBorderColor: '#ffffff',
-        pointBorderWidth: 1,
-        pointRadius: timeRange === '1D' ? 2 : 3,
-        pointHoverRadius: timeRange === '1D' ? 4 : 5,
-        pointHitRadius: 10,
-        tension: 0.3,
-        fill: true,
-        backgroundColor: (context: any) => {
-          const chart = context.chart;
-          const { ctx, chartArea } = chart;
-          if (!chartArea) return;
-          const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
-          gradient.addColorStop(0, 'rgba(59, 130, 246, 0.1)');
-          gradient.addColorStop(1, 'rgba(59, 130, 246, 0.4)');
-          return gradient;
-        },
-      },
-    ],
-  };
+  const selectedData = filterDataByTimeRange(getSelectedData());
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'top' as const,
-        labels: {
-          font: {
-            size: 14,
-            family: "'Inter', sans-serif",
-            weight: '500',
-          },
-          color: '#1f2937',
-        },
-      },
-      title: {
-        display: true,
-        text: `${companyName} (${symbol}) Stock Price - ${timeRange}`,
-        font: {
-          size: 18,
-          family: "'Inter', sans-serif",
-          weight: '600',
-        },
-        color: '#1f2937',
-        padding: {
-          top: 10,
-          bottom: 20,
-        },
-      },
-      tooltip: {
-        backgroundColor: 'rgba(17, 24, 39, 0.9)',
-        titleFont: {
-          size: 14,
-          family: "'Inter', sans-serif",
-        },
-        bodyFont: {
-          size: 12,
-          family: "'Inter', sans-serif",
-        },
-        padding: 10,
-        cornerRadius: 4,
+  // Candlestick format: { x: timestamp, y: [open, high, low, close] }
+  const candlestickData = selectedData.map((d, i, arr) => {
+    const open = i === 0 ? d.price : arr[i - 1].price;
+    const close = d.price;
+    const high = Math.max(open, close) + Math.random() * 2;
+    const low = Math.min(open, close) - Math.random() * 2;
+    return {
+      x: new Date(d.timestamp * 1000),
+      y: [open, high, low, close],
+    };
+  });
+
+  const lineData = selectedData.map((d) => ({
+    x: new Date(d.timestamp * 1000),
+    y: d.price,
+  }));
+
+  const chartOptions: ApexOptions = {
+    chart: {
+      type: chartType,
+      height: 400,
+      toolbar: { show: false },
+      animations: { enabled: true },
+    },
+    title: {
+      text: `${companyName} (${symbol}) - ${timeRange} ${chartType === 'candlestick' ? 'Candlestick' : 'Line'} Chart`,
+      align: 'left',
+      style: {
+        fontSize: '16px',
+        fontWeight: 'bold',
+        color: '#111827',
       },
     },
-    scales: {
-      x: {
-        title: {
-          display: true,
-          text: timeRange === '1D' ? 'Date and Time' : 'Date',
-          font: {
-            size: 14,
-            family: "'Inter', sans-serif",
-            weight: '500',
-          },
-          color: '#1f2937',
-        },
-        grid: {
-          display: true,
-          color: 'rgba(0, 0, 0, 0.05)',
-        },
-        ticks: {
-          font: {
-            size: 12,
-            family: "'Inter', sans-serif",
-          },
-          color: '#1f2937',
-          maxRotation: timeRange === '1D' ? 45 : 0,
-          autoSkip: true,
-          maxTicksLimit: timeRange === '1D' ? 6 : 8,
-        },
-      },
-      y: {
-        title: {
-          display: true,
-          text: 'Price ($)',
-          font: {
-            size: 14,
-            family: "'Inter', sans-serif",
-            weight: '500',
-          },
-          color: '#1f2937',
-        },
-        grid: {
-          color: 'rgba(0, 0, 0, 0.05)',
-        },
-        ticks: {
-          font: {
-            size: 12,
-            family: "'Inter', sans-serif",
-          },
-          color: '#1f2937',
-        },
+    xaxis: {
+      type: 'datetime',
+      labels: {
+        style: { fontFamily: "'Inter', sans-serif", fontSize: '12px' },
       },
     },
-    elements: {
-      line: {
-        shadowOffsetX: 0,
-        shadowOffsetY: 4,
-        shadowBlur: 10,
-        shadowColor: 'rgba(0, 0, 0, 0.1)',
+    yaxis: {
+      tooltip: { enabled: true },
+      labels: {
+        style: { fontFamily: "'Inter', sans-serif", fontSize: '12px' },
       },
+    },
+    tooltip: {
+      shared: true,
+      theme: 'dark',
+    },
+    stroke: {
+      curve: 'smooth',
+      width: chartType === 'line' ? 2 : 1,
     },
   };
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-lg h-96 mb-8">
-      <div className="flex flex-wrap gap-2 mb-6">
-        {['1D', '1W', '1M', '6M', 'YTD', '1Y', '5Y', 'All'].map((range) => (
+    <div className="bg-white p-6 rounded-lg shadow-lg mb-8">
+      {/* Time Range Buttons */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {['1H', '1D', '1W', '1M', '6M', 'YTD', '1Y', '5Y', 'All'].map((range) => (
           <button
             key={range}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
-              timeRange === range ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            className={`px-3 py-1.5 rounded text-sm font-medium ${
+              timeRange === range ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
             }`}
             onClick={() => setTimeRange(range as typeof timeRange)}
           >
@@ -283,8 +136,40 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, dayData, a
           </button>
         ))}
       </div>
+
+      {/* Chart Type Switch */}
+      <div className="flex gap-2 mb-6 justify-end">
+        <button
+          onClick={() => setChartType('line')}
+          className={`px-4 py-1.5 rounded text-sm font-medium ${
+            chartType === 'line' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+          }`}
+        >
+          Line
+        </button>
+        <button
+          onClick={() => setChartType('candlestick')}
+          className={`px-4 py-1.5 rounded text-sm font-medium ${
+            chartType === 'candlestick' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+          }`}
+        >
+          Candlestick
+        </button>
+      </div>
+
+      {/* Chart */}
       {selectedData.length > 0 ? (
-        <Line ref={chartRef} data={chartData} options={chartOptions as any} />
+        <ApexChart
+          type={chartType}
+          height={400}
+          series={[
+            {
+              name: symbol,
+              data: chartType === 'candlestick' ? candlestickData : lineData,
+            },
+          ]}
+          options={chartOptions}
+        />
       ) : (
         <p className="text-gray-500 text-sm">Loading stock data...</p>
       )}

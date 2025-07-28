@@ -2,6 +2,14 @@
 
 import puppeteer from "puppeteer";
 
+// In-memory cache
+const cache = new Map<string, { data: any; timestamp: number }>();
+
+// Utility function to check if cache is still valid
+function isCacheValid(timestamp: number, duration: number): boolean {
+  return Date.now() - timestamp < duration;
+}
+
 export interface SymbolData {
   symbol: string;
   name: string;
@@ -20,90 +28,66 @@ export interface SymbolWithTimeSeries {
   symbolData: SymbolData;
   timeSeries: TimeSeriesData[];
 }
+
 export interface CompanyReport {
   reportType: "Annual" | "Quarterly";
   periodEnded: string; // ISO date string (e.g., '2024-12-31')
   postingDate: string; // ISO date string (e.g., '2025-02-27')
 }
-export async function GetAllSymbolsWithTimeSeries() {
+
+export async function GetAllSymbols() {
+  const cacheKey = "allSymbols";
+  const cached = cache.get(cacheKey);
+
+  if (cached && isCacheValid(cached.timestamp, 1000 * 60 * 60 * 24)) {
+    return cached.data;
+  }
+
   try {
-    // Fetch symbol metadata
-    const symbolResponse = await fetch("https://dps.psx.com.pk/symbols", {
-      cache: "no-store",
-    });
-    const symbolData = await symbolResponse.json();
-    const filteredSymbols = symbolData.filter(
+    const response = await fetch("https://dps.psx.com.pk/symbols", {});
+    const data = await response.json();
+
+    const filteredData = data.filter(
       (x: SymbolData) => x.sectorName !== "BILLS AND BONDS"
     );
 
-    // Fetch time series data for each symbol (limit to first 5 to avoid API overload)
-    const maxSymbols = 100; // Adjust as needed
-    const timeSeriesPromises = filteredSymbols
-      .slice(0, maxSymbols)
-      .map(async (symbolItem: SymbolData) => {
-        try {
-          const timeSeriesResponse = await fetch(
-            `https://dps.psx.com.pk/timeseries/int/${symbolItem.symbol}`,
-            { cache: "no-store" }
-          );
-          const timeSeriesData = await timeSeriesResponse.json();
-          const formattedTimeSeries: TimeSeriesData[] = timeSeriesData.data.map(
-            (item: [number, number, number]) => ({
-              timestamp: item[0],
-              price: item[1],
-              volume: item[2],
-            })
-          );
-          return {
-            symbolData: symbolItem,
-            timeSeries: formattedTimeSeries,
-          };
-        } catch (error: any) {
-          console.error(
-            `Failed to fetch time series for ${symbolItem.symbol}:`,
-            error.message
-          );
-          return { symbolData: symbolItem, timeSeries: [] };
-        }
-      });
+    // Cache the result
+    cache.set(cacheKey, { data: filteredData, timestamp: Date.now() });
 
-    const symbolsWithTimeSeries: SymbolWithTimeSeries[] = await Promise.all(
-      timeSeriesPromises
-    );
-
-    return symbolsWithTimeSeries;
+    return filteredData;
   } catch (error: any) {
     console.error("Failed to fetch symbols:", error.message);
     return [];
   }
 }
-export async function GetAllSymbols() {
-  try {
-    const response = await fetch("https://dps.psx.com.pk/symbols", {});
-    const data = await response.json();
 
-    return data.filter((x: SymbolData) => x.sectorName !== "BILLS AND BONDS");
-  } catch (error: any) {
-    console.error("Failed to fetch symbols:", error.message);
-    return [];
-  }
-}
 export async function GetCompanyName(symbol: string) {
+  const cacheKey = `companyName_${symbol}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached && isCacheValid(cached.timestamp, 1000 * 60 * 60 * 24)) {
+    return cached.data;
+  }
+
   try {
     const response = await fetch("https://dps.psx.com.pk/symbols", {});
     const data = await response.json();
 
-    return (
+    const companyName =
       data.find((x: SymbolData) => x.symbol === symbol)?.name ||
-      "Unknown Company"
-    );
+      "Unknown Company";
+
+    // Cache the result
+    cache.set(cacheKey, { data: companyName, timestamp: Date.now() });
+
+    return companyName;
   } catch (error: any) {
     console.error("Failed to fetch symbols:", error.message);
-    return [];
+    return "Unknown Company";
   }
 }
 
-export async function GetDayData(symbol: string) {
+export async function GetDayDataRealtime(symbol: string) {
   try {
     const response = await fetch(
       `https://dps.psx.com.pk/timeseries/int/${symbol}`,
@@ -120,13 +104,40 @@ export async function GetDayData(symbol: string) {
         volume: item[2],
       })
     );
+
+    // Cache the result for future use by GetDayData or GetDayDataCached
+    const cacheKey = `dayData_${symbol}`;
+    cache.set(cacheKey, { data: formattedTimeSeries, timestamp: Date.now() });
+
     return formattedTimeSeries;
   } catch (error: any) {
-    console.error(`Failed to fetch time series for ${symbol}:`, error.message);
+    console.error(
+      `Failed to fetch real-time time series for ${symbol}:`,
+      error.message
+    );
     return { symbol, timeSeries: [] };
   }
 }
+
+export async function GetDayDataCached(symbol: string) {
+  const cacheKey = `dayData_${symbol}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached && isCacheValid(cached.timestamp, 1000 * 60 * 60 * 24)) {
+    return cached.data;
+  }
+
+  return null;
+}
+
 export async function GetAllTimeData(symbol: string) {
+  const cacheKey = `allTimeData_${symbol}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached && isCacheValid(cached.timestamp, 1000 * 60 * 60 * 24)) {
+    return cached.data;
+  }
+
   try {
     const response = await fetch(
       `https://dps.psx.com.pk/timeseries/eod/${symbol}`,
@@ -143,24 +154,36 @@ export async function GetAllTimeData(symbol: string) {
         volume: item[2],
       })
     );
+
+    // Cache the result
+    cache.set(cacheKey, { data: formattedTimeSeries, timestamp: Date.now() });
+
     return formattedTimeSeries;
   } catch (error: any) {
     console.error(`Failed to fetch time series for ${symbol}:`, error.message);
     return { symbol, timeSeries: [] };
   }
 }
+
 export interface CompanyReport {
   tableHtml: string; // HTML string of the table
 }
 
 export async function GetCompanyReports(symbol: string): Promise<any> {
+  const cacheKey = `companyReports_${symbol}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached && isCacheValid(cached.timestamp, 1000 * 60 * 60 * 24)) {
+    return cached.data;
+  }
+
   try {
     console.log(`Fetching reports for ${symbol}`);
 
     // Launch browser
     const browser = await puppeteer.launch({
-      headless: true, // or 'new' if you're using newer versions and want full headless mode
-      args: ["--no-sandbox", "--disable-setuid-sandbox"], // Useful for server environments
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
 
     const page = await browser.newPage();
@@ -177,6 +200,9 @@ export async function GetCompanyReports(symbol: string): Promise<any> {
     const tableHtml = await page.$eval("table", (table) => table.outerHTML);
 
     await browser.close();
+
+    // Cache the result
+    cache.set(cacheKey, { data: { tableHtml }, timestamp: Date.now() });
 
     return { tableHtml };
   } catch (error: any) {
