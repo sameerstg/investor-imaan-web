@@ -1,5 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
+import { ModeToggle } from './ModeToggle';
 
 function Navbar() {
     return (
@@ -15,7 +16,7 @@ function Navbar() {
                 {/* Buttons on the right */}
                 <div className="flex space-x-4">
                     <Link href="/shariah-stocks">
-                        <button className="text-white hover:bg-gray-700 px-3 py-2 rounded-md text-sm font-medium">
+                        <button className="text-white  hover:bg-gray-700 px-3 py-2 rounded-md text-sm font-medium">
                             Shariah Compliant Stocks
                         </button>
                     </Link>
@@ -29,6 +30,7 @@ function Navbar() {
                             Calculator
                         </button>
                     </Link>
+                    <ModeToggle />
                 </div>
             </div>
         </div>
