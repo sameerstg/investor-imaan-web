@@ -53,7 +53,7 @@ const StockDetailsPage: React.FC = () => {
   return (
     <div className="container mx-auto p-6">
       <h1 className="text-3xl font-bold text-gray-800 mb-6">
-        {companyName} ({symbol}) Stock Details {isLoadingRealtime && '(Updating...)'}
+        {companyName} ({symbol}) {isLoadingRealtime && '(Updating...)'}
       </h1>
       <StockChart
         symbol={symbol}
