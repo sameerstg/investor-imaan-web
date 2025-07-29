@@ -24,6 +24,11 @@ function Navbar() {
                             My Portfolio
                         </button>
                     </Link>
+                    <Link href="/sip">
+                        <button className="text-white hover:bg-gray-700 px-3 py-2 rounded-md text-sm font-medium">
+                            Calculator
+                        </button>
+                    </Link>
                 </div>
             </div>
         </div>
