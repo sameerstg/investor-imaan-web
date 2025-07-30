@@ -239,7 +239,7 @@ export default function Page() {
 
   return (
     <div className="max-w-6xl mx-auto p-5">
-      <h1 className="text-3xl font-bold text-gray-800 mb-6">Shariah-Compliant Stocks</h1>
+      <h1 className="text-3xl font-bold  mb-6">Shariah-Compliant Stocks</h1>
       <div className="mb-6">
         <input
           type="text"
@@ -249,19 +249,19 @@ export default function Page() {
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
-      <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+      <div className=" rounded-lg shadow-lg overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+          <thead className="">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Day High</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Day Low</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Price</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
+              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider">Symbol</th>
+              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider">Day High</th>
+              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider">Day Low</th>
+              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider">Volume</th>
+              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider">Current Price</th>
+              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider"></th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className=" divide-y divide-gray-200">
             {isLoading && stockData.length === 0
               ? Array(5).fill(0).map((_, index) => <SkeletonRow key={index} />)
               : stockData
@@ -281,14 +281,14 @@ export default function Page() {
                           </Link>
                         </td>
                        
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{dayHigh.toFixed(2)}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{dayLow.toFixed(2)}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{volume.toLocaleString()}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{currentPrice.toFixed(2)}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm ">{dayHigh.toFixed(2)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm ">{dayLow.toFixed(2)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm ">{volume.toLocaleString()}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm ">{currentPrice.toFixed(2)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm ">
                           <button
                             onClick={() => toggleChart(symbol)}
-                            className="text-blue-600 hover:text-blue-800 focus:outline-none"
+                            className=" hover:text-blue-800 focus:outline-none"
                           >
                             <svg
                               className={`w-5 h-5 transform transition-transform ${visibleCharts[symbol] ? 'rotate-180' : ''}`}
@@ -313,7 +313,7 @@ export default function Page() {
                                 allTimeData={allTimeData}
                               />
                             ) : (
-                              <p className="text-gray-500 text-sm">Loading chart data...</p>
+                              <p className="text-sm">Loading chart data...</p>
                             )}
                           </td>
                         </tr>
