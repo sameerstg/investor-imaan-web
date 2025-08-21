@@ -1,113 +1,50 @@
 "use client";
-
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { Alert } from "@/components/ui/alert";
-import { Label } from "@radix-ui/react-dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { useEffect } from "react";
 
-export default function SignIn() {
-  const [formData, setFormData] = useState<{
-    email: string;
-    password: string;
-  }>({ email: "", password: "" });
-  const [error, setError] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false); // Loading state
+export default function SignInButton() {
+  const { data: session, status } = useSession();
   const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true); // Set loading to true when form is submitted
-
-    const res = await signIn("credentials", {
-      redirect: false,
-      email: formData.email,
-      password: formData.password,
-    });
-
-    setLoading(false); // Stop loading after the response
-
-    if (res?.error) {
-      setError("Invalid email or password");
-    } else {
-      router.push("/");
+  // Redirect if already signed in
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.push("/dashboard"); // change this to your protected route
     }
+  }, [status, router]);
+
+  const handleSignIn = async () => {
+    await signIn("google", { redirect: true });
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.id]: e.target.value });
-  };
+  // While loading session, show nothing or a spinner
+  if (status === "loading") {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-gray-500">Checking authentication...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-800 text-white">
-      {loading ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-70">
-          <svg
-            className="animate-spin h-16 w-16 text-white"
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="4"
-              d="M4 12a8 8 0 0 1 16 0"
-            ></path>
-          </svg>
-          <p className="mt-4 text-white">Signing In...</p>
-        </div>
-      ) : (
-        <div className="bg-gray-900 p-8 rounded-lg shadow-md w-full max-w-md">
-          <h1 className="text-2xl font-bold mb-6 text-center">Sign In</h1>
-          {error && <Alert variant="destructive" className="mb-4">{error}</Alert>}
-
-          <form onSubmit={handleSubmit}>
-            <Label title="email">Email</Label>
-            <Input
-              type="email"
-              id="email"
-              value={formData.email}
-              onChange={handleChange}
-              className="mt-1 p-2 w-full border border-gray-600 rounded-md bg-gray-800 text-white"
-              required
-            />
-
-            <Label title="password">Password</Label>
-            <Input
-              type="password"
-              id="password"
-              value={formData.password}
-              onChange={handleChange}
-              className="mt-1 p-2 w-full border border-gray-600 rounded-md bg-gray-800 text-white"
-              required
-            />
-
-            <Button
-              type="submit"
-              className="w-full mt-4 bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700"
-              disabled={loading}
-            >
-              {loading ? "Signing In..." : "Sign In"}
-            </Button>
-          </form>
-
-          <p className="mt-4 text-center">
-            Don’t have an account?{" "}
-            <Link href="/sign-up" className="text-blue-600 hover:underline">
-              Sign Up
-            </Link>
-          </p>
-        </div>
-      )
-      }
-    </div >
+    <div className="flex items-center justify-center h-screen bg-gray-50">
+      <button
+        onClick={handleSignIn}
+        className="flex items-center space-x-2 px-6 py-3 bg-white border border-gray-300 rounded-lg shadow-md hover:bg-gray-100 transition"
+      >
+        {/* Google Logo */}
+        <Image
+          src="https://www.gstatic.com/images/branding/product/1x/gsa_512dp.png"
+          alt="Google Logo"
+          width={24}
+          height={24}
+        />
+        <span className="text-gray-700 font-medium text-base">
+          Sign in with Google
+        </span>
+      </button>
+    </div>
   );
 }

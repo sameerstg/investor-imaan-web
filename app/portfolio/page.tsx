@@ -6,8 +6,8 @@ function Portfolio() {
   const { data, status } = useSession()
   return (
     <div>
-      <>{data?.user.name}</>
-      <>{data?.user.email}</>
+      <>{data?.user?.name}</>
+      <>{data?.user?.email}</>
     </div>
   )
 }

@@ -2,9 +2,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { ModeToggle } from './ModeToggle';
-import { useSession } from 'next-auth/react';
-import SignIn from '@/app/sign-in/page';
-
+import { signIn, signOut, useSession } from 'next-auth/react';
 function Navbar() {
     const { status, data } = useSession()
     return (
@@ -34,9 +32,25 @@ function Navbar() {
                         Portfolio
 
                     </Link>
+                    {/* Auth button */}
+                    {status === "authenticated" ? (
+                        <button
+                            onClick={() => signOut({ callbackUrl: "/" })}
+                            className="text-white hover:bg-red-700 px-3 py-2 rounded-md text-sm font-medium"
+                        >
+                            Logout
+                        </button>
+                    ) : (
+                        <button
+                            onClick={async () => await signIn("google", { redirect: true })
+                            }
+                            className="text-white hover:bg-green-700 px-3 py-2 rounded-md text-sm font-medium"
+                        >
+                            Sign In
+                        </button>
+                    )}
                     <ModeToggle />
 
-                    <SignIn />
                 </div>
             </div>
         </div >
