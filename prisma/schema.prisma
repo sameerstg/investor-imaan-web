@@ -76,5 +76,10 @@ model Trade {
   price       Float
   fees        Float
   tradeDate   DateTime  @default(now())
+  type        TradeType
   portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+}
+enum TradeType {
+  BUY
+  SELL
 }

@@ -21,15 +21,12 @@ function Navbar() {
                         className="text-white  hover:bg-gray-700 px-3 py-2 rounded-md text-sm font-medium">
                         Shariah Compliant Stocks
                     </Link>
-                    <Link href="/portfolio"
-                        className="text-white hover:bg-gray-700 px-3 py-2 rounded-md text-sm font-medium">
-                        My Portfolio
-                    </Link>
+                    
                     <Link href="/sip" className="text-white hover:bg-gray-700 px-3 py-2 rounded-md text-sm font-medium">
                         Calculator
                     </Link>
                     <Link className="text-white hover:bg-gray-700 px-3 py-2 rounded-md text-sm font-medium" href={status === "unauthenticated" ? "/sign-in" : "/portfolio"}>
-                        Portfolio
+                        Portfolio Tracker
 
                     </Link>
                     {/* Auth button */}

@@ -1,32 +1,89 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
-import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
-//   adapter: PrismaAdapter(Prisma),
+  adapter: PrismaAdapter(prisma),
 
   providers: [Google],
   session: { strategy: "jwt" },
   pages: {
     signIn: "/sign-in",
   },
-//   callbacks: {
-//     async signIn({ account, profile }) {
-//       if (!profile?.email) {
-//         throw new Error("Email is required for sign-in");
-//       }
-//       await prisma?.user.upsert({
-//         where: { email: profile?.email },
-//         create: {
-//           email: profile.email,
-//           name: profile.name,
-//         },
-//         update: {
-//           name: profile.name,
-//         },
-//       });
-//       return true;
-//     },
-//   },
-  debug: true,
+  callbacks: {
+    async signIn({ user, account, profile }) {
+      if (!profile?.email) return false;
+      if (!account) return false; // 👈 TS-safe guard
+
+      const existingUser = await prisma.user.findUnique({
+        where: { email: profile.email },
+      });
+
+      if (existingUser) {
+        // ✅ If user exists → upsert account
+        await prisma.account.upsert({
+          where: {
+            provider_providerAccountId: {
+              provider: account.provider,
+              providerAccountId: account.providerAccountId,
+            },
+          },
+          update: {
+            userId: existingUser.id,
+          },
+          create: {
+            userId: existingUser.id,
+            type: account.type,
+            provider: account.provider,
+            providerAccountId: account.providerAccountId,
+            access_token: account.access_token,
+            refresh_token: account.refresh_token,
+            expires_at: account.expires_at,
+            token_type: account.token_type,
+            scope: account.scope,
+            id_token: account.id_token,
+          },
+        });
+      } else {
+        // 🚀 Else → create new user and link account
+        const newUser = await prisma.user.create({
+          data: {
+            email: profile.email,
+            name: profile.name ?? user.name,
+            image: profile.picture ?? user.image,
+          },
+        });
+
+        await prisma.account.create({
+          data: {
+            userId: newUser.id,
+            type: account.type,
+            provider: account.provider,
+            providerAccountId: account.providerAccountId,
+            access_token: account.access_token,
+            refresh_token: account.refresh_token,
+            expires_at: account.expires_at,
+            token_type: account.token_type,
+            scope: account.scope,
+            id_token: account.id_token,
+          },
+        });
+      }
+
+      return true;
+    },
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id; // attach user id into JWT
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user && token.id) {
+        session.user.id = token.id as string;
+      }
+      return session;
+    },
+  },
 });
