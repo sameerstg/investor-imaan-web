@@ -3,6 +3,7 @@ import React from 'react';
 import Link from 'next/link';
 import { ModeToggle } from './ModeToggle';
 import { useSession } from 'next-auth/react';
+import SignIn from '@/app/sign-in/page';
 
 function Navbar() {
     const { status, data } = useSession()
@@ -35,6 +36,7 @@ function Navbar() {
                     </Link>
                     <ModeToggle />
 
+                    <SignIn />
                 </div>
             </div>
         </div >
