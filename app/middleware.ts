@@ -1,27 +1,20 @@
-// middleware.ts
-import { withAuth } from "next-auth/middleware";
+// or for NextAuth v4.29+:
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-export default withAuth(
-  function middleware(req: NextRequest) {
-    // ✅ `req.nextauth.token` is typed as `JWT | null`
-    if (!req.nextauth.token) {
-      return NextResponse.redirect(new URL("/sign-in", req.url));
-    }
-    return NextResponse.next();
-  },
-  {
-    callbacks: {
-      // ✅ explicit typing here fixes TS errors
-      authorized: ({ token }: { token: unknown }) => {
-        return !!token; // only allow if token exists
-      },
-    },
+// Custom middleware for protecting routes
+export function middleware(req: NextRequest) {
+  const token = req.cookies.get("next-auth.session-token") || req.cookies.get("__Secure-next-auth.session-token");
+
+  // If no token, redirect to sign-in
+  if (!token) {
+    return NextResponse.redirect(new URL("/sign-in", req.url));
   }
-);
+
+  // If token exists, continue
+  return NextResponse.next();
+}
 
 export const config = {
-  matcher: ["/((?!api|_next|static|favicon.ico|sign-in).*)"], 
-  // ✅ exclude /sign-in from protection
+  matcher: ["/((?!api|_next|static|favicon.ico|sign-in).*)"],
 };
