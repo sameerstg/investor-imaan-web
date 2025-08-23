@@ -31,10 +31,11 @@ export default function Page() {
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [fetchedSymbols, setFetchedSymbols] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+  const stocksPerPage = 10;
 
   // Fetch cached or real-time data for a single stock
   const fetchStockData = useCallback(async (symbol: string) => {
-    // Try to get cached data first
     const cachedDayData = await GetDayDataCached(symbol);
     if (cachedDayData) {
       const prices = cachedDayData.map((item: TimeSeriesData) => item.price);
@@ -47,7 +48,7 @@ export default function Page() {
 
       return {
         symbol,
-        companyName: `${symbol} Name`, // Placeholder, will be updated with real-time data if needed
+        companyName: `${symbol} Name`,
         dayHigh,
         dayLow,
         volume,
@@ -57,9 +58,8 @@ export default function Page() {
       };
     }
 
-    // Fetch real-time data if no valid cache
     try {
-      const [ dayData] = await Promise.all([
+      const [dayData] = await Promise.all([
         GetDayDataRealtime(symbol) as Promise<TimeSeriesData[]>,
       ]);
       const prices = dayData.map((item) => item.price);
@@ -97,26 +97,21 @@ export default function Page() {
   const fetchFilteredStockData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Filter symbols based on search query
       const filteredSymbols = symbolsOfShariahCompliantStocks.filter(
         (symbol) =>
           symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
           `${symbol} Name`.toLowerCase().includes(searchQuery.toLowerCase())
       );
 
-      // Fetch data one by one for symbols that haven't been fully fetched
       for (const symbol of filteredSymbols) {
         if (!fetchedSymbols.has(symbol)) {
           const newStockData = await fetchStockData(symbol);
-
-          // Update fetched symbols
           setFetchedSymbols((prev) => {
             const newSet = new Set(prev);
             newSet.add(symbol);
             return newSet;
           });
 
-          // Update stock data incrementally
           setStockData((prev) => {
             const existingDataMap = new Map(prev.map((stock) => [stock.symbol, stock]));
             existingDataMap.set(symbol, newStockData);
@@ -140,8 +135,9 @@ export default function Page() {
     }
   }, [searchQuery, fetchedSymbols, fetchStockData]);
 
-  // Trigger fetch when search query changes
+  // Trigger fetch when search query changes and reset to page 1
   useEffect(() => {
+    setCurrentPage(1); // Reset to first page on search change
     fetchFilteredStockData();
   }, [searchQuery, fetchFilteredStockData]);
 
@@ -159,7 +155,6 @@ export default function Page() {
     }));
     setStockData(initialStockData);
 
-    // Load cached data for all symbols
     const loadCachedData = async () => {
       for (const symbol of symbolsOfShariahCompliantStocks) {
         const cachedData = await GetDayDataCached(symbol);
@@ -177,7 +172,7 @@ export default function Page() {
               stock.symbol === symbol
                 ? {
                     ...stock,
-                    companyName: `${symbol} Name`, // Will be updated with real-time data if fetched
+                    companyName: `${symbol} Name`,
                     dayHigh,
                     dayLow,
                     volume,
@@ -224,22 +219,35 @@ export default function Page() {
     }
   };
 
+  // Pagination logic
+  const filteredStocks = stockData.filter(
+    (stock) =>
+      stock.symbol.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  const totalPages = Math.ceil(filteredStocks.length / stocksPerPage);
+  const startIndex = (currentPage - 1) * stocksPerPage;
+  const endIndex = startIndex + stocksPerPage;
+  const paginatedStocks = filteredStocks.slice(startIndex, endIndex);
+
+  // Handle page change
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
   // Skeleton loader component
   const SkeletonRow = () => (
     <tr>
-      {Array(7)
-        .fill(0)
-        .map((_, index) => (
-          <td key={index} className="px-6 py-4 whitespace-nowrap">
-            <div className="h-4 bg-gray-200 rounded animate-pulse"></div>
-          </td>
-        ))}
+      {Array(7).fill(0).map((_, index) => (
+        <td key={index} className="px-6 py-4 whitespace-nowrap">
+          <div className="h-4 bg-gray-200 rounded animate-pulse"></div>
+        </td>
+      ))}
     </tr>
   );
 
   return (
     <div className="max-w-6xl mx-auto p-5">
-      <h1 className="text-3xl font-bold  mb-6">Shariah-Compliant Stocks</h1>
+      <h1 className="text-3xl font-bold mb-6">Shariah-Compliant Stocks</h1>
       <div className="mb-6">
         <input
           type="text"
@@ -249,80 +257,118 @@ export default function Page() {
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
-      <div className=" rounded-lg shadow-lg overflow-hidden">
+      <div className="rounded-lg shadow-lg overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
-          <thead className="">
+          <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider">Symbol</th>
-              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider">Day High</th>
-              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider">Day Low</th>
-              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider">Volume</th>
-              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider">Current Price</th>
-              <th className="px-6 py-3 text-left text-xs font-medium  uppercase tracking-wider"></th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Day High</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Day Low</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Price</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
             </tr>
           </thead>
-          <tbody className=" divide-y divide-gray-200">
-            {isLoading && stockData.length === 0
-              ? Array(5).fill(0).map((_, index) => <SkeletonRow key={index} />)
-              : stockData
-                  .filter(
-                    (stock) =>
-                      stock.symbol.toLowerCase().includes(searchQuery.toLowerCase()) 
-                  )
-                  .map(({ symbol, dayHigh, dayLow, volume, currentPrice, dayData, allTimeData }) => (
-                    <React.Fragment key={symbol}>
+          <tbody className="divide-y divide-gray-200">
+            {isLoading && paginatedStocks.length === 0
+              ? Array(stocksPerPage).fill(0).map((_, index) => <SkeletonRow key={index} />)
+              : paginatedStocks.map(({ symbol, dayHigh, dayLow, volume, currentPrice, dayData, allTimeData }) => (
+                  <React.Fragment key={symbol}>
+                    <tr>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        <Link
+                          href={`/stock/${symbol}`}
+                          className="text-gray-900 font-medium hover:text-blue-600 block w-full h-full"
+                        >
+                          {symbol}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${dayHigh.toFixed(2)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${dayLow.toFixed(2)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{volume.toLocaleString()}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${currentPrice.toFixed(2)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <button
+                          onClick={() => toggleChart(symbol)}
+                          className="text-gray-500 hover:text-blue-800 focus:outline-none"
+                          aria-label={visibleCharts[symbol] ? `Hide chart for ${symbol}` : `Show chart for ${symbol}`}
+                        >
+                          <svg
+                            className={`w-5 h-5 transform transition-transform ${visibleCharts[symbol] ? 'rotate-180' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                    {visibleCharts[symbol] && (
                       <tr>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          <Link
-                            href={`/stock/${symbol}`}
-                            className="text-gray-900 font-medium hover:text-blue-600 block w-full h-full"
-                          >
-                            {symbol}
-                          </Link>
-                        </td>
-                       
-                        <td className="px-6 py-4 whitespace-nowrap text-sm ">{dayHigh.toFixed(2)}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm ">{dayLow.toFixed(2)}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm ">{volume.toLocaleString()}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm ">{currentPrice.toFixed(2)}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm ">
-                          <button
-                            onClick={() => toggleChart(symbol)}
-                            className=" hover:text-blue-800 focus:outline-none"
-                          >
-                            <svg
-                              className={`w-5 h-5 transform transition-transform ${visibleCharts[symbol] ? 'rotate-180' : ''}`}
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                              xmlns="http://www.w3.org/2000/svg"
-                            >
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
+                        <td colSpan={7} className="px-6 py-4">
+                          {dayData && allTimeData ? (
+                            <StockChart
+                              symbol={symbol}
+                              companyName=""
+                              dayData={dayData}
+                              allTimeData={allTimeData}
+                            />
+                          ) : (
+                            <p className="text-sm text-gray-500">Loading chart data...</p>
+                          )}
                         </td>
                       </tr>
-                      {visibleCharts[symbol] && (
-                        <tr>
-                          <td colSpan={7} className="px-6 py-4">
-                            {dayData && allTimeData ? (
-                              <StockChart
-                                symbol={symbol}
-                                companyName={""}
-                                dayData={dayData}
-                                allTimeData={allTimeData}
-                              />
-                            ) : (
-                              <p className="text-sm">Loading chart data...</p>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  ))}
+                    )}
+                  </React.Fragment>
+                ))}
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="text-sm text-gray-500">
+            Showing {startIndex + 1} to {Math.min(endIndex, filteredStocks.length)} of {filteredStocks.length} stocks
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => goToPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Previous page"
+            >
+              Previous
+            </button>
+            <div className="flex gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <button
+                  key={page}
+                  onClick={() => goToPage(page)}
+                  className={`px-3 py-1 border rounded-lg text-sm font-medium ${
+                    currentPage === page
+                      ? 'bg-blue-500 text-white border-blue-500'
+                      : 'text-gray-700 border-gray-300 hover:bg-gray-100'
+                  }`}
+                  aria-label={`Go to page ${page}`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => goToPage(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Next page"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
