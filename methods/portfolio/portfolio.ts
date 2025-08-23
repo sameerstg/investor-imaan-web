@@ -8,7 +8,6 @@ export async function getPortfolios(userId: string) {
     where: { userId },
     include: {
       Trade: true,
-
     },
   });
 }
@@ -17,11 +16,11 @@ export async function getPortfolioById(id: string) {
     const portfolio = await prisma.portfolio.findUnique({
       where: { id },
       include: { Trade: true }, // so you can show assets & trade history
-    })
-    return portfolio
+    });
+    return portfolio;
   } catch (err) {
-    console.error("Error fetching portfolio by id:", err)
-    throw err
+    console.error("Error fetching portfolio by id:", err);
+    throw err;
   }
 }
 // Create a new portfolio
