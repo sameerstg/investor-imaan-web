@@ -42,6 +42,8 @@ export default function Page({ params }: Prop) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Trade | null>(null);
   const [networth, setNetworth] = useState(0);
+  const [symbolSummary, setSymbolSummary] = useState<Record<string, { cost: number; quantity: number }>>({});
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   const [symbol, setSymbol] = useState("");
   const [tradeDate, setTradeDate] = useState("");
@@ -49,7 +51,6 @@ export default function Page({ params }: Prop) {
   const [quantity, setQuantity] = useState(0);
   const [price, setPrice] = useState(0);
   const [fees, setFees] = useState(0);
-  const [symbolSummary, setSymbolSummary] = useState<Record<string, number>>({});
 
   const fetchPortfolio = async () => {
     setLoading(true);
@@ -71,13 +72,17 @@ export default function Page({ params }: Prop) {
 
   useEffect(() => {
     setNetworth(calculateNetWorth(trades as any));
-    const summary: Record<string, number> = {};
+    const summary: Record<string, { cost: number; quantity: number }> = {};
     trades.forEach((t) => {
       const cost = t.type === "BUY"
         ? t.quantity * t.price + t.fees
         : -(t.quantity * t.price - t.fees);
+      const qty = t.type === "BUY" ? t.quantity : -t.quantity;
 
-      summary[t.symbol] = (summary[t.symbol] || 0) + cost;
+      summary[t.symbol] = {
+        cost: (summary[t.symbol]?.cost || 0) + cost,
+        quantity: (summary[t.symbol]?.quantity || 0) + qty,
+      };
     });
     setSymbolSummary(summary);
   }, [trades]);
@@ -93,7 +98,7 @@ export default function Page({ params }: Prop) {
     setQuantity(0);
     setPrice(0);
     setFees(0);
-    setTradeDate(new Date().toISOString().slice(0, 16)); // default to now
+    setTradeDate(new Date().toISOString().slice(0, 16));
     setIsModalOpen(true);
   };
 
@@ -104,7 +109,7 @@ export default function Page({ params }: Prop) {
     setQuantity(trade.quantity);
     setPrice(trade.price);
     setFees(trade.fees);
-    setTradeDate(trade.tradeDate.toISOString().slice(0, 16)); // for datetime-local
+    setTradeDate(trade.tradeDate.toISOString().slice(0, 16));
     setIsModalOpen(true);
   };
 
@@ -137,26 +142,21 @@ export default function Page({ params }: Prop) {
         setTrades([...trades, updatedTrade]);
       }
 
-      // reset form
       setEditingTrade(null);
-      if (!keepOpen)
-        setSymbol("");
-      setQuantity(0);
-      setPrice(0);
-      setFees(0);
-      setTradeDate(new Date().toISOString().slice(0, 16));
-
-      // close modal only if not keepOpen
       if (!keepOpen) {
+        setSymbol("");
+        setFees(0);
+        setTradeDate(new Date().toISOString().slice(0, 16));
         setIsModalOpen(false);
       }
+      setPrice(0);
+      setQuantity(0);
     } catch (err) {
       console.error("Failed to save trade:", err);
     } finally {
       setSaving(false);
     }
   };
-
 
   const confirmDeleteTrade = (trade: Trade) => {
     setConfirmDelete(trade);
@@ -169,11 +169,19 @@ export default function Page({ params }: Prop) {
       await deleteTrade(confirmDelete.id);
       setTrades(trades.filter((t) => t.id !== confirmDelete.id));
       setConfirmDelete(null);
+      if (selectedSymbol && confirmDelete.symbol === selectedSymbol &&
+        trades.filter(t => t.symbol === selectedSymbol).length === 1) {
+        setSelectedSymbol(null);
+      }
     } catch (err) {
       console.error("Failed to delete trade:", err);
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const toggleSymbolTrades = (symbol: string) => {
+    setSelectedSymbol(selectedSymbol === symbol ? null : symbol);
   };
 
   if (!id) return null;
@@ -204,17 +212,23 @@ export default function Page({ params }: Prop) {
           {/* Symbol Summary */}
           {Object.keys(symbolSummary).length > 0 && (
             <div className="mt-3 p-3 rounded bg-blue-50">
-              <h3 className="font-semibold mb-2">Symbol Cost Summary</h3>
+              <h3 className="font-semibold mb-2">Symbol Summary</h3>
               <ul className="space-y-1">
-                {Object.entries(symbolSummary).map(([symbol, total]) => (
+                {Object.entries(symbolSummary).map(([symbol, { cost, quantity }]) => (
                   <li
                     key={symbol}
-                    className="flex flex-row justify-between items-center border-2 rounded px-3 py-2"
+                    className="grid grid-cols-2 items-center rounded px-3 py-2 cursor-pointer hover:bg-blue-100"
+                    onClick={() => toggleSymbolTrades(symbol)}
                   >
-                    <span className="font-medium">{symbol}</span>
-                    <span className={total >= 0 ? "text-green-700" : "text-red-700"}>
-                      {total.toFixed(2)}
-                    </span>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{symbol}</span>
+                      <span className="text-sm text-gray-600">Quantity: {quantity}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className={cost >= 0 ? "text-green-700" : "text-red-700"}>
+                        {cost.toFixed(2)}
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -222,55 +236,66 @@ export default function Page({ params }: Prop) {
           )}
 
           <div className="mt-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-            <h2 className="text-lg font-semibold">Trades</h2>
-            <Button variant="outline" onClick={openCreateModal}>
-              + Create Trade
-            </Button>
+            <h2 className="text-lg font-semibold">
+              {selectedSymbol ? `${selectedSymbol} Trades` : "All Trades"}
+            </h2>
+            <div className="flex gap-2">
+              {selectedSymbol && (
+                <Button variant="outline" onClick={() => setSelectedSymbol(null)}>
+                  Show All Trades
+                </Button>
+              )}
+              <Button variant="outline" onClick={openCreateModal}>
+                + Create Trade
+              </Button>
+            </div>
           </div>
 
           {trades.length > 0 ? (
             <ul className="mt-4 space-y-2">
-              {trades.map((t) => (
-                <li
-                  key={t.id}
-                  className="border p-3 rounded flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-bold ${t.type === "BUY"
-                        ? "bg-green-100 text-green-700"
-                        : "bg-red-100 text-red-700"
-                        }`}
-                    >
-                      {t.type}
-                    </span>
-                    <span>
-                      {t.quantity} {t.symbol} @ {t.price} (Fees: {t.fees})
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {new Date(t.tradeDate).toLocaleString("en-GB", {
-                        day: "2-digit",
-                        month: "long",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => openEditModal(t)}>
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => confirmDeleteTrade(t)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </li>
-              ))}
+              {trades
+                .filter((t) => !selectedSymbol || t.symbol === selectedSymbol)
+                .map((t) => (
+                  <li
+                    key={t.id}
+                    className="border p-3 rounded flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                      <span
+                        className={`px-2 py-1 rounded text-xs font-bold ${t.type === "BUY"
+                          ? "bg-green-100 text-green-700"
+                          : "bg-red-100 text-red-700"
+                          }`}
+                      >
+                        {t.type}
+                      </span>
+                      <span>
+                        {t.quantity} {t.symbol} @ {t.price} (Fees: {t.fees}) ({(t.quantity * t.price).toFixed(2)})
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {new Date(t.tradeDate).toLocaleString("en-GB", {
+                          day: "2-digit",
+                          month: "long",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openEditModal(t)}>
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => confirmDeleteTrade(t)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </li>
+                ))}
             </ul>
           ) : (
             <p className="mt-4 text-gray-500">
@@ -355,11 +380,10 @@ export default function Page({ params }: Prop) {
                 "Save"
               )}
             </Button>
-            {/* Save & Create New */}
             {!editingTrade && (
               <Button
                 variant="secondary"
-                onClick={() => handleSaveTrade(true)} // pass a flag to keep modal open
+                onClick={() => handleSaveTrade(true)}
                 disabled={!symbol || quantity <= 0 || price <= 0 || saving}
               >
                 {saving ? (
