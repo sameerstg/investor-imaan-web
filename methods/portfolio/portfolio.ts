@@ -15,7 +15,13 @@ export async function getPortfolioById(id: string) {
   try {
     const portfolio = await prisma.portfolio.findUnique({
       where: { id },
-      include: { Trade: true }, // so you can show assets & trade history
+      include: {
+        Trade: {
+          orderBy: {
+            tradeDate: "asc",
+          },
+        },
+      }, // so you can show assets & trade history
     });
     return portfolio;
   } catch (err) {

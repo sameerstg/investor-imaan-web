@@ -16,15 +16,7 @@ import { createTrade, deleteTrade, updateTrade } from "@/methods/trade/trade";
 import { getPortfolioById } from "@/methods/portfolio/portfolio";
 import { Loader2 } from "lucide-react";
 import { calculateNetWorth } from "@/utils/portfolio";
-
-type Trade = {
-  id: string;
-  symbol: string;
-  type: "BUY" | "SELL";
-  quantity: number;
-  price: number;
-  fees: number;
-};
+import { Trade } from "@prisma/client";
 
 type PortfolioWithTrades = {
   id: string;
@@ -49,12 +41,15 @@ export default function Page({ params }: Prop) {
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Trade | null>(null);
-  const [networth, setnetworth] = useState(0)
+  const [networth, setNetworth] = useState(0);
+
   const [symbol, setSymbol] = useState("");
+  const [tradeDate, setTradeDate] = useState("");
   const [type, setType] = useState<"BUY" | "SELL">("BUY");
   const [quantity, setQuantity] = useState(0);
   const [price, setPrice] = useState(0);
   const [fees, setFees] = useState(0);
+  const [symbolSummary, setSymbolSummary] = useState<Record<string, number>>({});
 
   const fetchPortfolio = async () => {
     setLoading(true);
@@ -73,10 +68,19 @@ export default function Page({ params }: Prop) {
       setLoading(false);
     }
   };
-  useEffect(() => {
-    setnetworth(calculateNetWorth(trades as any));
-  }, [trades])
 
+  useEffect(() => {
+    setNetworth(calculateNetWorth(trades as any));
+    const summary: Record<string, number> = {};
+    trades.forEach((t) => {
+      const cost = t.type === "BUY"
+        ? t.quantity * t.price + t.fees
+        : -(t.quantity * t.price - t.fees);
+
+      summary[t.symbol] = (summary[t.symbol] || 0) + cost;
+    });
+    setSymbolSummary(summary);
+  }, [trades]);
 
   useEffect(() => {
     fetchPortfolio();
@@ -89,6 +93,7 @@ export default function Page({ params }: Prop) {
     setQuantity(0);
     setPrice(0);
     setFees(0);
+    setTradeDate(new Date().toISOString().slice(0, 16)); // default to now
     setIsModalOpen(true);
   };
 
@@ -99,11 +104,12 @@ export default function Page({ params }: Prop) {
     setQuantity(trade.quantity);
     setPrice(trade.price);
     setFees(trade.fees);
+    setTradeDate(trade.tradeDate.toISOString().slice(0, 16)); // for datetime-local
     setIsModalOpen(true);
   };
 
-  const handleSaveTrade = async () => {
-    if (!symbol || quantity <= 0 || price <= 0) return;
+  const handleSaveTrade = async (keepOpen = false) => {
+    if (!symbol || quantity <= 0 || price <= 0 || !tradeDate) return;
     if (!id) return;
 
     setSaving(true);
@@ -116,6 +122,7 @@ export default function Page({ params }: Prop) {
           quantity,
           price,
           fees,
+          tradeDate: new Date(tradeDate),
         });
         setTrades(trades.map((t) => (t.id === updatedTrade.id ? updatedTrade : t)));
       } else {
@@ -125,22 +132,31 @@ export default function Page({ params }: Prop) {
           quantity,
           price,
           fees,
+          tradeDate: new Date(tradeDate),
         });
         setTrades([...trades, updatedTrade]);
       }
 
-      setIsModalOpen(false);
+      // reset form
       setEditingTrade(null);
-      setSymbol("");
+      if (!keepOpen)
+        setSymbol("");
       setQuantity(0);
       setPrice(0);
       setFees(0);
+      setTradeDate(new Date().toISOString().slice(0, 16));
+
+      // close modal only if not keepOpen
+      if (!keepOpen) {
+        setIsModalOpen(false);
+      }
     } catch (err) {
       console.error("Failed to save trade:", err);
     } finally {
       setSaving(false);
     }
   };
+
 
   const confirmDeleteTrade = (trade: Trade) => {
     setConfirmDelete(trade);
@@ -185,6 +201,26 @@ export default function Page({ params }: Prop) {
           <div className="mt-2 p-3 rounded bg-gray-100 text-gray-800 font-semibold">
             Net Worth: {networth.toFixed(2)}
           </div>
+          {/* Symbol Summary */}
+          {Object.keys(symbolSummary).length > 0 && (
+            <div className="mt-3 p-3 rounded bg-blue-50">
+              <h3 className="font-semibold mb-2">Symbol Cost Summary</h3>
+              <ul className="space-y-1">
+                {Object.entries(symbolSummary).map(([symbol, total]) => (
+                  <li
+                    key={symbol}
+                    className="flex flex-row justify-between items-center border-2 rounded px-3 py-2"
+                  >
+                    <span className="font-medium">{symbol}</span>
+                    <span className={total >= 0 ? "text-green-700" : "text-red-700"}>
+                      {total.toFixed(2)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="mt-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
             <h2 className="text-lg font-semibold">Trades</h2>
             <Button variant="outline" onClick={openCreateModal}>
@@ -199,7 +235,7 @@ export default function Page({ params }: Prop) {
                   key={t.id}
                   className="border p-3 rounded flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                     <span
                       className={`px-2 py-1 rounded text-xs font-bold ${t.type === "BUY"
                         ? "bg-green-100 text-green-700"
@@ -210,6 +246,15 @@ export default function Page({ params }: Prop) {
                     </span>
                     <span>
                       {t.quantity} {t.symbol} @ {t.price} (Fees: {t.fees})
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {new Date(t.tradeDate).toLocaleString("en-GB", {
+                        day: "2-digit",
+                        month: "long",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
                     </span>
                   </div>
                   <div className="flex gap-2">
@@ -286,15 +331,44 @@ export default function Page({ params }: Prop) {
                 onChange={(e) => setFees(Number(e.target.value))}
               />
             </div>
+
+            <div>
+              <Label>Trade Date & Time</Label>
+              <Input
+                type="datetime-local"
+                value={tradeDate}
+                onChange={(e) => setTradeDate(e.target.value)}
+              />
+            </div>
           </div>
 
           <DialogFooter>
             <Button
-              onClick={handleSaveTrade}
+              onClick={() => handleSaveTrade()}
               disabled={!symbol || quantity <= 0 || price <= 0 || saving}
             >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : editingTrade ? "Update" : "Save"}
+              {saving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : editingTrade ? (
+                "Update"
+              ) : (
+                "Save"
+              )}
             </Button>
+            {/* Save & Create New */}
+            {!editingTrade && (
+              <Button
+                variant="secondary"
+                onClick={() => handleSaveTrade(true)} // pass a flag to keep modal open
+                disabled={!symbol || quantity <= 0 || price <= 0 || saving}
+              >
+                {saving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  "Save & Create New"
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

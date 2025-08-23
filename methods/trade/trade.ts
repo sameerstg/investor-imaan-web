@@ -9,6 +9,7 @@ type TradeInput = {
   quantity: number;
   price: number;
   fees: number;
+  tradeDate: Date;
 };
 
 // -------------------- CREATE TRADE --------------------
@@ -21,6 +22,7 @@ export async function createTrade(portfolioId: string, data: TradeInput) {
       quantity: data.quantity,
       price: data.price,
       fees: data.fees,
+      tradeDate: data.tradeDate,
     },
   });
 }
@@ -35,6 +37,7 @@ export async function updateTrade(tradeId: string, data: TradeInput) {
       quantity: data.quantity,
       price: data.price,
       fees: data.fees,
+      tradeDate: data.tradeDate,
     },
   });
 }
