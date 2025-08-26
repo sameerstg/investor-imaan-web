@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 
 // Trade type for inputs
-type TradeInput = {
+export type TradeInput = {
   symbol: string;
   type: "BUY" | "SELL";
   quantity: number;

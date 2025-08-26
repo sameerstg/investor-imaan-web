@@ -1,29 +1,24 @@
 'use client';
 import StockChart from '@/components/StockChart';
-import { GetAllTimeData, GetDayDataCached, GetDayDataRealtime } from '@/methods/stockPrice';
 import { symbolsOfShariahCompliantStocks } from '@/store/constant';
 import Link from 'next/link';
 import React, { useState, useEffect, useCallback } from 'react';
-import { debounce } from 'lodash'; // Install lodash: `npm install lodash`
+import { debounce } from 'lodash';
+import { GetDayDataCached, GetDayDataRealtime } from '@/methods/stockPrice';
+import { TimeSeriesData } from '@/methods/stocks';
 
-// Define TimeSeriesData interface
-export interface TimeSeriesData {
-  timestamp: number;
-  price: number;
-  volume: number;
-  high?: number;
-  low?: number;
-}
-
-// Interface for stock summary data
+// Simplified interface without chart data
 interface StockSummary {
   symbol: string;
   dayHigh: number;
   dayLow: number;
   volume: number;
   currentPrice: number;
-  dayData: TimeSeriesData[];
-  allTimeData?: TimeSeriesData[];
+}
+
+interface TimeSeriesItem {
+  price: number;
+  volume: number;
 }
 
 export default function Page() {
@@ -35,50 +30,44 @@ export default function Page() {
   const [currentPage, setCurrentPage] = useState(1);
   const stocksPerPage = 10;
 
-  // Fetch data for a single stock
+  // Simplified fetch for stock summary data only
   const fetchStockData = useCallback(async (symbol: string): Promise<StockSummary> => {
-    const cachedDayData = await GetDayDataCached(symbol);
-    if (cachedDayData?.length) {
-      const prices = cachedDayData.map((item: TimeSeriesData) => item.price);
-      const highs = cachedDayData.map((item: TimeSeriesData) => item.high || item.price);
-      const lows = cachedDayData.map((item: TimeSeriesData) => item.low || item.price);
+    const cachedData = await GetDayDataCached(symbol) as TimeSeriesData[] | null;
+    if (cachedData?.length) {
+      const prices = cachedData.map(item => item.price);
       return {
         symbol,
-        dayHigh: Math.max(...highs),
-        dayLow: Math.min(...lows),
-        volume: cachedDayData.reduce((sum: number, item: TimeSeriesData) => sum + item.volume, 0),
+        dayHigh: Math.max(...prices),
+        dayLow: Math.min(...prices),
+        volume: cachedData.reduce((sum, item) => sum + item.volume, 0),
         currentPrice: prices[prices.length - 1] || 0,
-        dayData: cachedDayData,
-        allTimeData: undefined,
       };
     }
 
     try {
       const dayData = await GetDayDataRealtime(symbol) as TimeSeriesData[];
-      const prices = dayData.map((item) => item.price);
-      const highs = dayData.map((item) => item.high || item.price);
-      const lows = dayData.map((item) => item.low || item.price);
-      return {
-        symbol,
-        dayHigh: dayData.length ? Math.max(...highs) : 0,
-        dayLow: dayData.length ? Math.min(...lows) : 0,
-        volume: dayData.reduce((sum, item) => sum + item.volume, 0),
-        currentPrice: prices[prices.length - 1] || 0,
-        dayData,
-        allTimeData: undefined,
-      };
+      if (Array.isArray(dayData) && dayData.length > 0) {
+        const prices = dayData.map(item => item.price);
+        return {
+          symbol,
+          dayHigh: Math.max(...prices),
+          dayLow: Math.min(...prices),
+          volume: dayData.reduce((sum, item) => sum + item.volume, 0),
+          currentPrice: prices[prices.length - 1],
+        };
+      }
     } catch (error) {
-      console.error(`Error fetching real-time data for ${symbol}:`, error);
-      return {
-        symbol,
-        dayHigh: 0,
-        dayLow: 0,
-        volume: 0,
-        currentPrice: 0,
-        dayData: [],
-        allTimeData: undefined,
-      };
+      console.error(`Error fetching data for ${symbol}:`, error);
     }
+
+    // Default return for error cases
+    return {
+      symbol,
+      dayHigh: 0,
+      dayLow: 0,
+      volume: 0,
+      currentPrice: 0,
+    };
   }, []);
 
   // Fetch data for paginated filtered stocks
@@ -118,8 +107,6 @@ export default function Page() {
             dayLow: 0,
             volume: 0,
             currentPrice: 0,
-            dayData: [],
-            allTimeData: undefined,
           }
         );
       });
@@ -145,8 +132,6 @@ export default function Page() {
       dayLow: 0,
       volume: 0,
       currentPrice: 0,
-      dayData: [],
-      allTimeData: undefined,
     }));
     setStockData(initialStockData);
 
@@ -158,26 +143,22 @@ export default function Page() {
 
       const results = await Promise.all(
         initialSymbols.map(async (symbol) => {
-          const cachedData = await GetDayDataCached(symbol);
+          const cachedData = await GetDayDataCached(symbol) as TimeSeriesData[] | null;
           if (cachedData?.length) {
-            const prices = cachedData.map((item: TimeSeriesData) => item.price);
-            const highs = cachedData.map((item: TimeSeriesData) => item.high || item.price);
-            const lows = cachedData.map((item: TimeSeriesData) => item.low || item.price);
+            const prices = cachedData.map(item => item.price);
             return {
               symbol,
-              dayHigh: Math.max(...highs),
-              dayLow: Math.min(...lows),
-              volume: cachedData.reduce((sum: number, item: TimeSeriesData) => sum + item.volume, 0),
+              dayHigh: Math.max(...prices),
+              dayLow: Math.min(...prices),
+              volume: cachedData.reduce((sum, item) => sum + item.volume, 0),
               currentPrice: prices[prices.length - 1] || 0,
-              dayData: cachedData,
-              allTimeData: undefined,
-            };
+            } as StockSummary;
           }
           return null;
         })
       );
 
-      const validResults = results.filter((result) => result !== null);
+      const validResults = results.filter((result): result is StockSummary => result !== null);
       if (validResults.length > 0) {
         setFetchedSymbols((prev) => new Set([...prev, ...validResults.map((r) => r.symbol)]));
         setStockData((prev) => {
@@ -190,8 +171,6 @@ export default function Page() {
               dayLow: 0,
               volume: 0,
               currentPrice: 0,
-              dayData: [],
-              allTimeData: undefined,
             }
           );
         });
@@ -199,32 +178,6 @@ export default function Page() {
     };
     loadCachedData();
   }, []); // Run only once on mount
-
-  // Fetch allTimeData when chart is toggled
-  const toggleChart = async (symbol: string) => {
-    setVisibleCharts((prev) => ({
-      ...prev,
-      [symbol]: !prev[symbol],
-    }));
-
-    if (!visibleCharts[symbol]) {
-      try {
-        const allTimeData = await GetAllTimeData(symbol);
-        setStockData((prev) =>
-          prev.map((s) =>
-            s.symbol === symbol ? { ...s, allTimeData } : s
-          )
-        );
-      } catch (error) {
-        console.error(`Error fetching all-time data for ${symbol}:`, error);
-        setStockData((prev) =>
-          prev.map((s) =>
-            s.symbol === symbol ? { ...s, allTimeData: [] } : s
-          )
-        );
-      }
-    }
-  };
 
   // Handle page change
   const goToPage = (page: number) => {
@@ -285,57 +238,51 @@ export default function Page() {
           <tbody className="divide-y divide-gray-200">
             {isLoading && paginatedStocks.length === 0
               ? Array(stocksPerPage).fill(0).map((_, index) => <SkeletonRow key={index} />)
-              : paginatedStocks.map(({ symbol, dayHigh, dayLow, volume, currentPrice, dayData, allTimeData }) => (
-                  <React.Fragment key={symbol}>
+              : paginatedStocks.map(({ symbol, dayHigh, dayLow, volume, currentPrice }) => (
+                <React.Fragment key={symbol}>
+                  <tr>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      <Link
+                        href={`/stock/${symbol}`}
+                        className="text-gray-900 font-medium hover:text-blue-600 block w-full h-full"
+                      >
+                        {symbol}
+                      </Link>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{dayHigh.toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{dayLow.toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{volume.toLocaleString()}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{currentPrice.toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <button
+                        onClick={() => setVisibleCharts((prev) => ({ ...prev, [symbol]: !prev[symbol] }))}
+                        className="text-gray-500 hover:text-blue-800 focus:outline-none"
+                        aria-label={visibleCharts[symbol] ? `Hide chart for ${symbol}` : `Show chart for ${symbol}`}
+                      >
+                        <svg
+                          className={`w-5 h-5 transform transition-transform ${visibleCharts[symbol] ? 'rotate-180' : ''}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                  {visibleCharts[symbol] && (
                     <tr>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        <Link
-                          href={`/stock/${symbol}`}
-                          className="text-gray-900 font-medium hover:text-blue-600 block w-full h-full"
-                        >
-                          {symbol}
-                        </Link>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{dayHigh.toFixed(2)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{dayLow.toFixed(2)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{volume.toLocaleString()}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{currentPrice.toFixed(2)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <button
-                          onClick={() => toggleChart(symbol)}
-                          className="text-gray-500 hover:text-blue-800 focus:outline-none"
-                          aria-label={visibleCharts[symbol] ? `Hide chart for ${symbol}` : `Show chart for ${symbol}`}
-                        >
-                          <svg
-                            className={`w-5 h-5 transform transition-transform ${visibleCharts[symbol] ? 'rotate-180' : ''}`}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                            xmlns="http://www.w3.org/2000/svg"
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
+                      <td colSpan={7} className="px-6 py-4">
+                        <StockChart
+                          symbol={symbol}
+                          companyName={symbol}
+                        />
                       </td>
                     </tr>
-                    {visibleCharts[symbol] && (
-                      <tr>
-                        <td colSpan={7} className="px-6 py-4">
-                          {dayData && allTimeData ? (
-                            <StockChart
-                              symbol={symbol}
-                              companyName=""
-                              dayData={dayData}
-                              allTimeData={allTimeData}
-                            />
-                          ) : (
-                            <p className="text-sm text-gray-500">Loading chart data...</p>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))}
+                  )}
+                </React.Fragment>
+              ))}
           </tbody>
         </table>
       </div>
@@ -360,11 +307,10 @@ export default function Page() {
                 <button
                   key={page}
                   onClick={() => goToPage(page)}
-                  className={`px-3 py-1 border rounded-lg text-sm font-medium ${
-                    currentPage === page
+                  className={`px-3 py-1 border rounded-lg text-sm font-medium ${currentPage === page
                       ? 'bg-blue-500 text-white border-blue-500'
                       : 'text-gray-700 border-gray-300 hover:bg-gray-100'
-                  }`}
+                    }`}
                   aria-label={`Go to page ${page}`}
                 >
                   {page}

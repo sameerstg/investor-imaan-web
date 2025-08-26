@@ -7,10 +7,50 @@ import { getPortfolioById } from "@/methods/portfolio/portfolio";
 import { Trade } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import * as XLSX from "xlsx";
+import { Pencil, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { deleteTrade } from "@/methods/trade/trade";
+import { useRouter } from "next/navigation";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { updateTrade } from "@/methods/trade/trade";
+import { Loader2 } from "lucide-react";
 
 interface Prop {
   params: { id: string };
+}
+
+interface TradeInput {
+  symbol: string;
+  type: "BUY" | "SELL";
+  quantity: number;
+  price: number;
+  fees: number;
+  tradeDate: string;
+}
+
+interface EditFormInput {
+  symbol: string;
+  type: "BUY" | "SELL";
+  quantity: number;
+  price: number;
+  fees: number;
+  tradeDate: string; // Keep as string for form handling
 }
 
 export default function AllTradesPage({ params }: Prop) {
@@ -18,8 +58,20 @@ export default function AllTradesPage({ params }: Prop) {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [deleteConfirm, setDeleteConfirm] = useState<Trade | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<EditFormInput>({
+    symbol: "",
+    type: "BUY",
+    quantity: 0,
+    price: 0,
+    fees: 0,
+    tradeDate: new Date().toISOString().slice(0, 16),
+  });
   const tradesPerPage = 20;
-  const [isExporting, setIsExporting] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     setLoading(true);
@@ -36,63 +88,56 @@ export default function AllTradesPage({ params }: Prop) {
   const endIndex = startIndex + tradesPerPage;
   const paginatedTrades = trades.slice(startIndex, endIndex);
 
-  const goToPage = useCallback((page: number) => {
-    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
-  }, [totalPages]);
+  const goToPage = useCallback(
+    (page: number) => {
+      setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+    },
+    [totalPages]
+  );
 
-  const exportTradesToExcel = useCallback(() => {
-    setIsExporting(true);
+  const handleDelete = async (trade: Trade) => {
+    setDeleting(true);
     try {
-      const exportData = trades.map((t) => ({
-        Symbol: t.symbol,
-        Type: t.type,
-        Quantity: t.quantity,
-        Price: t.price.toFixed(2),
-        Fees: t.fees.toFixed(2),
-        Total: (t.quantity * t.price).toFixed(2),
-        "Trade Date": new Date(t.tradeDate).toLocaleString("en-GB", {
-          day: "2-digit",
-          month: "long",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      }));
-
-      const worksheet = XLSX.utils.json_to_sheet(exportData);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Trade Logs");
-
-      worksheet["!cols"] = [
-        { wch: 10 }, // Symbol
-        { wch: 8 },  // Type
-        { wch: 10 }, // Quantity
-        { wch: 10 }, // Price
-        { wch: 10 }, // Fees
-        { wch: 12 }, // Total
-        { wch: 20 }, // Trade Date
-      ];
-
-      const portfolioName = portfolio?.name?.replace(/\s+/g, "_") || "Portfolio";
-      const date = new Date().toISOString().slice(0, 10);
-      const fileName = `${portfolioName}_Trade_Logs_${date}.xlsx`;
-
-      const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-      const data = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = window.URL.createObjectURL(data);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Failed to export trade logs:", err);
+      await deleteTrade(trade.id);
+      setTrades((prev) => prev.filter((t) => t.id !== trade.id));
+      setDeleteConfirm(null);
+    } catch (error) {
+      console.error("Failed to delete trade:", error);
     } finally {
-      setIsExporting(false);
+      setDeleting(false);
     }
-  }, [trades, portfolio]);
+  };
+
+  const handleEdit = async () => {
+    if (!editingTrade) return;
+    setIsEditing(true);
+    try {
+      const updated = await updateTrade(editingTrade.id, {
+        ...editForm,
+        tradeDate: new Date(editForm.tradeDate), // Convert string to Date here
+      });
+      setTrades((prev) =>
+        prev.map((t) => (t.id === updated.id ? updated : t))
+      );
+      setEditingTrade(null);
+    } catch (error) {
+      console.error("Failed to update trade:", error);
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
+  const openEditDialog = (trade: Trade) => {
+    setEditingTrade(trade);
+    setEditForm({
+      symbol: trade.symbol,
+      type: trade.type as "BUY" | "SELL",
+      quantity: trade.quantity,
+      price: trade.price,
+      fees: trade.fees,
+      tradeDate: new Date(trade.tradeDate).toISOString().slice(0, 16),
+    });
+  };
 
   return (
     <div className="p-4 max-w-5xl mx-auto space-y-6">
@@ -100,26 +145,15 @@ export default function AllTradesPage({ params }: Prop) {
         <h1 className="text-2xl font-bold ">
           All Trades {portfolio?.name ? `- ${portfolio.name}` : ""}
         </h1>
-        <div className="flex gap-2">
+        <Link href={`/portfolio/${params.id}`} passHref>
           <Button
-            onClick={exportTradesToExcel}
             variant="outline"
-            className="border-green-500 text-green-600 hover:bg-green-50 font-semibold"
-            disabled={isExporting || trades.length === 0}
-            aria-label="Export trade logs to Excel"
+            className="border-gray-400  hover:bg-gray-100 font-semibold"
+            aria-label="Go to portfolio summary"
           >
-            Export Trade Logs
+            Back to Portfolio
           </Button>
-          <Link href={`/portfolio/${params.id}`} passHref>
-            <Button
-              variant="outline"
-              className="border-gray-400  hover:bg-gray-100 font-semibold"
-              aria-label="Go to portfolio summary"
-            >
-              Back to Portfolio
-            </Button>
-          </Link>
-        </div>
+        </Link>
       </div>
       {loading ? (
         <div className="space-y-4">
@@ -155,7 +189,8 @@ export default function AllTradesPage({ params }: Prop) {
                         {t.type}
                       </span>
                       <span className="text-gray-700 dark:text-gray-100">
-                        {t.quantity} {t.symbol} @ {t.price} (Fees: {t.fees}) (Total: {(t.quantity * t.price).toFixed(2)})
+                        {t.quantity} {t.symbol} @ {t.price} (Fees: {t.fees}) (Total:{" "}
+                        {(t.quantity * t.price).toFixed(2)})
                       </span>
                       <span className="text-xs text-gray-500 dark:text-gray-400">
                         {new Date(t.tradeDate).toLocaleString("en-GB", {
@@ -167,13 +202,32 @@ export default function AllTradesPage({ params }: Prop) {
                         })}
                       </span>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEditDialog(t)}
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleteConfirm(t)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
               {totalPages > 1 && (
                 <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="text-sm text-gray-500">
-                    Showing {startIndex + 1} to {Math.min(endIndex, trades.length)} of {trades.length} trades
+                    Showing {startIndex + 1} to{" "}
+                    {Math.min(endIndex, trades.length)} of {trades.length} trades
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
@@ -185,21 +239,23 @@ export default function AllTradesPage({ params }: Prop) {
                       Previous
                     </Button>
                     <div className="flex gap-1">
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                        <Button
-                          key={page}
-                          onClick={() => goToPage(page)}
-                          className={cn(
-                            "px-3 py-1 border rounded-lg text-sm font-medium",
-                            currentPage === page
-                              ? "bg-blue-500 text-white border-blue-500 dark:bg-blue-600 dark:border-blue-400"
-                              : " border-gray-300 dark:border-gray-600 hover:bg-gray-100 hover:dark:bg-gray-700"
-                          )}
-                          aria-label={`Go to page ${page}`}
-                        >
-                          {page}
-                        </Button>
-                      ))}
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                        (page) => (
+                          <Button
+                            key={page}
+                            onClick={() => goToPage(page)}
+                            className={cn(
+                              "px-3 py-1 border rounded-lg text-sm font-medium",
+                              currentPage === page
+                                ? "bg-blue-500 text-white border-blue-500 dark:bg-blue-600 dark:border-blue-400"
+                                : " border-gray-300 dark:border-gray-600 hover:bg-gray-100 hover:dark:bg-gray-700"
+                            )}
+                            aria-label={`Go to page ${page}`}
+                          >
+                            {page}
+                          </Button>
+                        )
+                      )}
                     </div>
                     <Button
                       onClick={() => goToPage(currentPage + 1)}
@@ -214,12 +270,150 @@ export default function AllTradesPage({ params }: Prop) {
               )}
             </>
           ) : (
-            <p className="text-gray-500 text-center py-4">
-              No trades found.
-            </p>
+            <p className="text-gray-500 text-center py-4">No trades found.</p>
           )}
         </>
       )}
+
+      <AlertDialog
+        open={!!deleteConfirm}
+        onOpenChange={() => setDeleteConfirm(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Trade</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this trade? This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <div className="flex items-center">
+                  <div className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </div>
+              ) : (
+                "Delete"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={!!editingTrade}
+        onOpenChange={(open) => !open && setEditingTrade(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Trade</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div>
+              <Label>Symbol</Label>
+              <Input
+                value={editForm.symbol}
+                onChange={(e) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    symbol: e.target.value.toUpperCase(),
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <Label>Type</Label>
+              <select
+                className="w-full border rounded-md p-2"
+                value={editForm.type}
+                onChange={(e) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    type: e.target.value as "BUY" | "SELL",
+                  }))
+                }
+              >
+                <option value="BUY">BUY</option>
+                <option value="SELL">SELL</option>
+              </select>
+            </div>
+            <div>
+              <Label>Quantity</Label>
+              <Input
+                type="number"
+                value={editForm.quantity}
+                onChange={(e) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    quantity: Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <Label>Price</Label>
+              <Input
+                type="number"
+                value={editForm.price}
+                onChange={(e) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    price: Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <Label>Fees</Label>
+              <Input
+                type="number"
+                value={editForm.fees}
+                onChange={(e) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    fees: Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <Label>Trade Date & Time</Label>
+              <Input
+                type="datetime-local"
+                value={editForm.tradeDate}
+                onChange={(e) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    tradeDate: e.target.value,
+                  }))
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingTrade(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEdit} disabled={isEditing}>
+              {isEditing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Update"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

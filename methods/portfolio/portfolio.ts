@@ -18,7 +18,7 @@ export async function getPortfolioById(id: string) {
       include: {
         Trade: {
           orderBy: {
-            tradeDate: "asc",
+            tradeDate: "desc",
           },
         },
       }, // so you can show assets & trade history

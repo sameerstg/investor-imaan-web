@@ -15,13 +15,25 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { createTrade, deleteTrade, updateTrade } from "@/methods/trade/trade";
 import { getPortfolioById } from "@/methods/portfolio/portfolio";
 import { GetDayDataCached, GetDayDataRealtime } from "@/methods/stockPrice";
-import { Loader2, ChevronDown, ChevronUp, Download, RefreshCw, ArrowUp, ArrowDown } from "lucide-react";
+import { Loader2, Download, RefreshCw, ArrowUp, ArrowDown } from "lucide-react";
 import { Trade } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import { debounce } from "lodash";
 import pLimit from "p-limit";
 import Link from "next/link";
+import StockChart from "@/components/StockChart";
+import TimeSeriesChart from "@/components/TimeSeriesChart"
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement, 
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js';
 
 // Define TimeSeriesData interface
 interface TimeSeriesData {
@@ -52,10 +64,11 @@ interface SymbolSummaryItemProps {
   currentPrice: number | null;
   isLoadingPrice: boolean;
   selectedSymbol: string | null;
-  toggleSymbolTrades: (symbol: string) => void;
+  visibleCharts: Record<string, boolean>;
+  toggleChart: (symbol: string) => void;
 }
 
-const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedProfit, currentPrice, isLoadingPrice, selectedSymbol, toggleSymbolTrades }: SymbolSummaryItemProps) => {
+const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedProfit, currentPrice, isLoadingPrice, selectedSymbol, visibleCharts, toggleChart }: SymbolSummaryItemProps) => {
   const unrealizedProfit = currentPrice && quantity > 0 ? currentPrice * quantity - cost : 0;
   const totalProfit = unrealizedProfit + realizedProfit;
   const percentProfit = cost !== 0 ? (totalProfit / Math.abs(cost)) * 100 : 0;
@@ -73,52 +86,83 @@ const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedP
   }
 
   return (
-    <li
-      className={cn(
-        "grid grid-cols-5 items-center rounded-lg p-3 cursor-pointer transition-colors",
+    <>
+      <li className={cn(
+        "grid grid-cols-6 items-center rounded-lg p-3 transition-colors", // Changed to 6 columns
         selectedSymbol === symbol ? "bg-blue-100" : "hover:bg-blue-50"
-      )}
-      onClick={() => toggleSymbolTrades(symbol)}
-    >
-      <div className="flex flex-col">
-        <span className="font-medium text-gray-800">{symbol}</span>
-        <span className="text-sm text-gray-500">Quantity: {quantity}</span>
-      </div>
-      <div className="text-right">
-        <span className={avgPriceColor}>
-          {avgBuyPrice.toFixed(2)}
-          {ArrowIcon}
-        </span>
-        <span className="block text-sm text-gray-500">Avg Buy Price</span>
-      </div>
-      <div className="text-right">
-        {isLoadingPrice ? (
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-gray-800">{currentPrice ? currentPrice.toFixed(2) : "N/A"}</span>
-            <Loader2 className="text-gray-800 w-4 h-4 animate-spin" />
-          </div>
-        ) : (
-          <span className="text-gray-800">{currentPrice ? currentPrice.toFixed(2) : "N/A"}</span>
-        )}
-        <span className="block text-sm text-gray-500">Current Price</span>
-      </div>
-      <div className="text-right">
-        <span className={cost >= 0 ? "text-green-600" : "text-red-600"}>{cost.toFixed(2)}</span>
-        <span className="block text-sm text-gray-500">Cost</span>
-      </div>
-      <div className="text-right">
-        <span className={totalProfit >= 0 ? "text-green-600" : "text-red-600"}>
-          {totalProfit.toFixed(2)}
-          <span className="ml-1 text-xs">
-            ({percentProfit >= 0 ? "+" : ""}
-            {percentProfit.toFixed(2)}%)
+      )}>
+        <div className="flex flex-col">
+          <span className="font-medium text-gray-800">{symbol}</span>
+          <span className="text-sm text-gray-500">Quantity: {quantity}</span>
+        </div>
+        <div className="text-right">
+          <span className={avgPriceColor}>
+            {avgBuyPrice.toFixed(2)}
+            {ArrowIcon}
           </span>
-        </span>
-        <span className="block text-sm text-gray-500">Total Profit</span>
-      </div>
-    </li>
+          <span className="block text-sm text-gray-500">Avg Buy Price</span>
+        </div>
+        <div className="text-right">
+          {isLoadingPrice ? (
+            <div className="flex items-center justify-end gap-2">
+              <span className="text-gray-800">{currentPrice ? currentPrice.toFixed(2) : "N/A"}</span>
+              <Loader2 className="text-gray-800 w-4 h-4 animate-spin" />
+            </div>
+          ) : (
+            <span className="text-gray-800">{currentPrice ? currentPrice.toFixed(2) : "N/A"}</span>
+          )}
+          <span className="block text-sm text-gray-500">Current Price</span>
+        </div>
+        <div className="text-right">
+          <span className={cost >= 0 ? "text-green-600" : "text-red-600"}>{cost.toFixed(2)}</span>
+          <span className="block text-sm text-gray-500">Cost</span>
+        </div>
+        <div className="text-right">
+          <span className={totalProfit >= 0 ? "text-green-600" : "text-red-600"}>
+            {totalProfit.toFixed(2)}
+            <span className="ml-1 text-xs">
+              ({percentProfit >= 0 ? "+" : ""}
+              {percentProfit.toFixed(2)}%)
+            </span>
+          </span>
+          <span className="block text-sm text-gray-500">Total Profit</span>
+        </div>
+        <div className="text-right">
+          <button
+            onClick={() => toggleChart(symbol)}
+            className="text-gray-500 hover:text-blue-800 focus:outline-none"
+            aria-label={visibleCharts[symbol] ? `Hide chart for ${symbol}` : `Show chart for ${symbol}`}
+          >
+            <svg
+              className={`w-5 h-5 transfo transition-transfo ${visibleCharts[symbol] ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
+      </li>
+      {visibleCharts[symbol] && (
+        <li className="py-4">
+          <StockChart symbol={symbol} companyName={symbol} />
+        </li>
+      )}
+    </>
   );
 });
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 export default function Page({ params }: Prop) {
   const [id, setId] = useState<null | string>(null);
@@ -129,13 +173,12 @@ export default function Page({ params }: Prop) {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<Trade | null>(null);
+  const [confiDelete, setConfiDelete] = useState<Trade | null>(null);
   const [symbolSummary, setSymbolSummary] = useState<
     Record<string, { cost: number; quantity: number; avgBuyPrice: number; realizedProfit: number }>
   >({});
   const [currentPrices, setCurrentPrices] = useState<Record<string, { price: number | null; loading: boolean }>>({});
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
-  const [isSummaryOpen, setIsSummaryOpen] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [symbol, setSymbol] = useState("");
   const [tradeDate, setTradeDate] = useState("");
@@ -143,6 +186,15 @@ export default function Page({ params }: Prop) {
   const [quantity, setQuantity] = useState(0);
   const [price, setPrice] = useState(0);
   const [fees, setFees] = useState(0);
+  const [visibleCharts, setVisibleCharts] = useState<Record<string, boolean>>({});
+  const [pnlData, setPnlData] = useState<{ date: string; pnl: number }[]>([]);
+
+  const toggleChart = useCallback((symbol: string) => {
+    setVisibleCharts(prev => ({
+      ...prev,
+      [symbol]: !prev[symbol]
+    }));
+  }, []);
 
   // Fetch current price for a single symbol
   const fetchCurrentPrice = useCallback(async (symbol: string): Promise<{ symbol: string; price: number | null }> => {
@@ -152,7 +204,7 @@ export default function Page({ params }: Prop) {
       if (cachedData?.length) {
         return { symbol, price: cachedData[cachedData.length - 1].price };
       }
-      const realTimeData = await limit(() => GetDayDataRealtime(symbol)) as TimeSeriesData[];
+      const realTimeData : any = await limit(() => GetDayDataRealtime(symbol));
       return { symbol, price: realTimeData.length ? realTimeData[realTimeData.length - 1].price : null };
     } catch (error) {
       console.error(`Error fetching price for ${symbol}:`, error);
@@ -212,12 +264,17 @@ export default function Page({ params }: Prop) {
     }
   }, [params]);
 
-  // Memoized symbol summary and net worth calculation
-  const { summary, totalNetWorth, totalCost, totalPnL } = useMemo(() => {
+  // Modify the summary calculation with null checks
+  const { summary, totalCost, totalPnL } = useMemo(() => {
+    if (!trades || trades.length === 0) {
+      return { summary: {}, totalCost: 0, totalPnL: 0 };
+    }
+
     const summary: Record<string, { cost: number; quantity: number; avgBuyPrice: number; realizedProfit: number }> = {};
     const buyTrades: Record<string, { totalCost: number; totalQuantity: number }> = {};
 
     trades.forEach((t) => {
+      if (!t) return; // Skip if trade is undefined
       const cost = t.type === "BUY" ? t.quantity * t.price + t.fees : -(t.quantity * t.price - t.fees);
       const qty = t.type === "BUY" ? t.quantity : -t.quantity;
 
@@ -241,29 +298,89 @@ export default function Page({ params }: Prop) {
       };
     });
 
-    let totalNetWorth = 0;
     let totalCost = 0;
     let totalPnL = 0;
-    Object.entries(summary).forEach(([symbol, { cost, quantity, realizedProfit }]) => {
-      const currentPrice = currentPrices[symbol]?.price;
-      if (currentPrice && quantity > 0) {
-        totalNetWorth += currentPrice * quantity;
-        totalPnL += (currentPrice * quantity - cost) + realizedProfit;
-      } else {
-        totalPnL += realizedProfit;
-      }
-      totalCost += cost;
-    });
 
-    return { summary, totalNetWorth, totalCost, totalPnL };
+    if (Object.keys(summary).length > 0) {
+      Object.entries(summary).forEach(([symbol, { cost, quantity, realizedProfit }]) => {
+        const currentPrice = currentPrices[symbol]?.price;
+        if (currentPrice && quantity > 0) {
+          totalPnL += (currentPrice * quantity - cost) + realizedProfit;
+        } else {
+          totalPnL += realizedProfit;
+        }
+        totalCost += cost;
+      });
+    }
+
+    return { summary, totalCost, totalPnL };
   }, [trades, currentPrices]);
 
   // Calculate overall PnL percentage
   const totalPnLPercent = totalCost !== 0 ? (totalPnL / Math.abs(totalCost)) * 100 : 0;
 
+  const calculatePnLHistory = useCallback(() => {
+    const pnlHistory: { date: string; pnl: number }[] = [];
+    let runningPnL = 0;
+    
+    // Sort trades by date
+    const sortedTrades = [...trades].sort((a, b) => 
+      new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime()
+    );
+
+    const holdings: Record<string, { quantity: number; totalCost: number }> = {};
+
+    sortedTrades.forEach(trade => {
+      const date = new Date(trade.tradeDate).toISOString().split('T')[0];
+      
+      if (trade.type === 'BUY') {
+        if (!holdings[trade.symbol]) {
+          holdings[trade.symbol] = { quantity: 0, totalCost: 0 };
+        }
+        holdings[trade.symbol].quantity += trade.quantity;
+        holdings[trade.symbol].totalCost += (trade.quantity * trade.price) + trade.fees;
+      } else {
+        // SELL
+        const avgBuyPrice = holdings[trade.symbol]?.totalCost / holdings[trade.symbol]?.quantity || 0;
+        const profit = (trade.price - avgBuyPrice) * trade.quantity - trade.fees;
+        runningPnL += profit;
+        
+        if (holdings[trade.symbol]) {
+          holdings[trade.symbol].quantity -= trade.quantity;
+          if (holdings[trade.symbol].quantity > 0) {
+            holdings[trade.symbol].totalCost = avgBuyPrice * holdings[trade.symbol].quantity;
+          } else {
+            delete holdings[trade.symbol];
+          }
+        }
+      }
+
+      // Calculate unrealized PnL for current holdings
+      let unrealizedPnL = 0;
+      Object.entries(holdings).forEach(([symbol, { quantity, totalCost }]) => {
+        const currentPrice = currentPrices[symbol]?.price;
+        if (currentPrice && quantity > 0) {
+          unrealizedPnL += (currentPrice * quantity) - totalCost;
+        }
+      });
+
+      pnlHistory.push({
+        date,
+        pnl: runningPnL + unrealizedPnL
+      });
+    });
+
+    return pnlHistory;
+  }, [trades, currentPrices]);
+
+  // Update PnL data when trades or prices change
+  useEffect(() => {
+    setPnlData(calculatePnLHistory());
+  }, [calculatePnLHistory]);
+
   useEffect(() => {
     setSymbolSummary(summary);
-  }, [summary, totalNetWorth]);
+  }, [summary, totalCost]);
 
   useEffect(() => {
     fetchPortfolio();
@@ -272,7 +389,7 @@ export default function Page({ params }: Prop) {
   // Fetch cached prices as soon as trades are loaded, before summary is calculated
   useEffect(() => {
     if (!trades.length) return;
-    
+
     let cancelled = false;
     const symbols = Array.from(new Set(trades.map(t => t.symbol)));
 
@@ -305,7 +422,7 @@ export default function Page({ params }: Prop) {
     const fetchRealtimePrices = async () => {
       const limit = pLimit(5);
       const results = await Promise.all(
-        symbols.map(symbol => 
+        symbols.map(symbol =>
           limit(async () => {
             try {
               const realTimeData = await GetDayDataRealtime(symbol) as TimeSeriesData[];
@@ -400,13 +517,13 @@ export default function Page({ params }: Prop) {
   }, [symbol, type, quantity, price, fees, tradeDate, id, editingTrade, selectedSymbol]);
 
   const handleDeleteTrade = useCallback(async () => {
-    if (!confirmDelete) return;
-    setDeletingId(confirmDelete.id);
+    if (!confiDelete) return;
+    setDeletingId(confiDelete.id);
     try {
-      await deleteTrade(confirmDelete.id);
-      setTrades((prev) => prev.filter((t) => t.id !== confirmDelete.id));
-      setConfirmDelete(null);
-      if (selectedSymbol && confirmDelete.symbol === selectedSymbol &&
+      await deleteTrade(confiDelete.id);
+      setTrades((prev) => prev.filter((t) => t.id !== confiDelete.id));
+      setConfiDelete(null);
+      if (selectedSymbol && confiDelete.symbol === selectedSymbol &&
         trades.filter(t => t.symbol === selectedSymbol).length === 1) {
         setSelectedSymbol(null);
       }
@@ -415,11 +532,7 @@ export default function Page({ params }: Prop) {
     } finally {
       setDeletingId(null);
     }
-  }, [confirmDelete, selectedSymbol, trades]);
-
-  const toggleSymbolTrades = useCallback((symbol: string) => {
-    setSelectedSymbol((prev) => (prev === symbol ? null : symbol));
-  }, []);
+  }, [confiDelete, selectedSymbol, trades]);
 
 
   // Export all asset statement (all trades, not just paginated)
@@ -468,7 +581,7 @@ export default function Page({ params }: Prop) {
       const fileName = `${portfolioName}_Asset_Statement_${date}.xlsx`;
 
       const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-      const data = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const data = new Blob([excelBuffer], { type: "application/vnd.openxmlfoats-officedocument.spreadsheetml.sheet" });
       const url = window.URL.createObjectURL(data);
       const link = document.createElement("a");
       link.href = url;
@@ -557,53 +670,56 @@ export default function Page({ params }: Prop) {
           <div className="bg-white shadow-sm rounded-lg p-6">
             <h1 className="text-2xl font-bold text-gray-800">{portfolio?.name}</h1>
             <p className="text-gray-600 mt-1">{portfolio?.description}</p>
-            <div className="mt-4 flex flex-col sm:flex-row gap-2">
-              <div className="p-3 rounded bg-gray-100 text-gray-800 font-semibold">
-                Total Cost: {totalCost.toFixed(2)}
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-gray-100 rounded-lg p-4">
+                <div className="text-sm text-gray-600 mb-1">Total Portfolio Cost</div>
+                <div className="text-2xl font-bold text-gray-900">
+                   {totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
               </div>
-              <div className="p-3 rounded bg-gray-100 font-semibold"
-                style={{ color: totalPnL >= 0 ? "#16a34a" : "#dc2626" }}>
-                PnL: {totalPnL.toFixed(2)}
-                <span className="ml-2 text-xs">
-                  ({totalPnLPercent >= 0 ? "+" : ""}
-                  {totalPnLPercent.toFixed(2)}%)
-                </span>
+              <div className={`rounded-lg p-4 ${totalPnL >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                <div className="text-sm text-gray-600 mb-1">Total Profit/Loss</div>
+                <div className={`text-2xl font-bold ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                   {totalPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <span className="text-sm ml-2">
+                    ({totalPnLPercent >= 0 ? '+' : ''}{totalPnLPercent.toFixed(2)}%)
+                  </span>
+                </div>
               </div>
             </div>
           </div>
 
+          {/* PnL Chart */}
+          <TimeSeriesChart
+            title="Portfolio PnL"
+            dayData={pnlData.map(d => ({ x: d.date, y: d.pnl.toFixed(2) })) as any[]}
+            allTimeData={pnlData.map(d => ({ x: d.date, y: d.pnl.toFixed(2) })) as any[]}
+            yAxisTitle="Profit/Loss"
+            lineColor={totalPnL >= 0 ? "#16a34a" : "#dc2626"}
+            fillColor={totalPnL >= 0 ? "rgba(22, 163, 74, 0.5)" : "rgba(220, 38, 38, 0.5)"}
+          />
+
           {/* Symbol Summary */}
           {Object.keys(symbolSummary).length > 0 && (
             <div className="bg-white shadow-sm rounded-lg p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold">Symbol Summary</h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsSummaryOpen(!isSummaryOpen)}
-                  aria-label={isSummaryOpen ? "Collapse summary" : "Expand summary"}
-                >
-                  {isSummaryOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-                </Button>
-              </div>
-              {isSummaryOpen && (
-                <ul className="space-y-2">
-                  {Object.entries(symbolSummary).map(([symbol, { cost, quantity, avgBuyPrice, realizedProfit }]) => (
-                    <SymbolSummaryItem
-                      key={symbol}
-                      symbol={symbol}
-                      cost={cost}
-                      quantity={quantity}
-                      avgBuyPrice={avgBuyPrice}
-                      realizedProfit={realizedProfit}
-                      currentPrice={currentPrices[symbol]?.price}
-                      isLoadingPrice={currentPrices[symbol]?.loading}
-                      selectedSymbol={selectedSymbol}
-                      toggleSymbolTrades={() => {}} // No-op, since trade history is removed
-                    />
-                  ))}
-                </ul>
-              )}
+              <h3 className="text-lg font-semibold mb-4">Symbol Summary</h3>
+              <ul className="space-y-2">
+                {Object.entries(symbolSummary).map(([symbol, { cost, quantity, avgBuyPrice, realizedProfit }]) => (
+                  <SymbolSummaryItem
+                    key={symbol}
+                    symbol={symbol}
+                    cost={cost}
+                    quantity={quantity}
+                    avgBuyPrice={avgBuyPrice}
+                    realizedProfit={realizedProfit}
+                    currentPrice={currentPrices[symbol]?.price}
+                    isLoadingPrice={currentPrices[symbol]?.loading}
+                    selectedSymbol={selectedSymbol}
+                    visibleCharts={visibleCharts}
+                    toggleChart={toggleChart}
+                  />
+                ))}
+              </ul>
             </div>
           )}
         </>
@@ -718,27 +834,27 @@ export default function Page({ params }: Prop) {
         </DialogContent>
       </Dialog>
 
-      {/* Confirm Delete Modal */}
-      <Dialog open={!!confirmDelete} onOpenChange={() => setConfirmDelete(null)}>
+      {/* Confi Delete Modal */}
+      <Dialog open={!!confiDelete} onOpenChange={() => setConfiDelete(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
+            <DialogTitle>Confi Delete</DialogTitle>
           </DialogHeader>
           <p>
             Are you sure you want to delete{" "}
-            <span className="font-semibold">{confirmDelete?.symbol}</span> trade?
+            <span className="font-semibold">{confiDelete?.symbol}</span> trade?
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDelete(null)}>
+            <Button variant="outline" onClick={() => setConfiDelete(null)}>
               Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={handleDeleteTrade}
-              disabled={deletingId === confirmDelete?.id}
-              aria-label={`Delete trade for ${confirmDelete?.symbol}`}
+              disabled={deletingId === confiDelete?.id}
+              aria-label={`Delete trade for ${confiDelete?.symbol}`}
             >
-              {deletingId === confirmDelete?.id ? (
+              {deletingId === confiDelete?.id ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 "Delete"

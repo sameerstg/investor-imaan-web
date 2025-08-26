@@ -21,13 +21,12 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { calculateNetWorth } from "@/utils/portfolio"
+import { calculateTotalCost } from "@/utils/portfolio"
 
-export type PortfolioWithTrades = Portfolio & { trades: Trade[] }
 
 export default function PortfolioPage() {
   const { data: session } = useSession()
-  const [portfolios, setPortfolios] = useState<PortfolioWithTrades[]>([])
+  const [portfolios, setPortfolios] = useState<any[]>([])
   const [name, setName] = useState("")
   const [desc, setDesc] = useState("")
   const [showForm, setShowForm] = useState(false)
@@ -36,17 +35,15 @@ export default function PortfolioPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   // For editing
-  const [editingPortfolio, setEditingPortfolio] = useState<PortfolioWithTrades | null>(null)
+  const [editingPortfolio, setEditingPortfolio] = useState<any | null>(null)
   const [updating, setUpdating] = useState(false)
-
-
 
   const fetchPortfolios = async () => {
     if (!session?.user?.id) return
     setLoading(true)
     try {
       const data = await getPortfolios(session.user.id)
-      setPortfolios(data as any)
+      setPortfolios(data as any[])
     } catch (err) {
       console.error("Failed to fetch portfolios:", err)
     } finally {
@@ -126,7 +123,8 @@ export default function PortfolioPage() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {portfolios.map((p) => {
-            const netWorth = calculateNetWorth(p.trades ?? [])
+            const totalCost = calculateTotalCost(p.Trade)
+            console.log(JSON.stringify(p))
             return (
               <div
                 key={p.id}
@@ -135,8 +133,13 @@ export default function PortfolioPage() {
                 <Link href={`/portfolio/${p.id}`} className="flex-1">
                   <p className="font-semibold">{p.name}</p>
                   <p className="text-sm text-gray-600">{p.description}</p>
-                  <p className="text-green-600 font-bold mt-1">
-                    Net Worth: {netWorth.toFixed(2)}                  </p>
+                  <p className="text-sm font-medium mt-2">
+                    Total Cost:{" "}
+                    {totalCost.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </p>
                 </Link>
                 <div className="flex gap-2 mt-2 self-end">
                   <Button
@@ -214,7 +217,7 @@ export default function PortfolioPage() {
               <Input
                 value={editingPortfolio?.name || ""}
                 onChange={(e) =>
-                  setEditingPortfolio((prev) =>
+                  setEditingPortfolio((prev:any) =>
                     prev ? { ...prev, name: e.target.value } : prev
                   )
                 }
@@ -225,7 +228,7 @@ export default function PortfolioPage() {
               <Input
                 value={editingPortfolio?.description || ""}
                 onChange={(e) =>
-                  setEditingPortfolio((prev) =>
+                  setEditingPortfolio((prev:any) =>
                     prev ? { ...prev, description: e.target.value } : prev
                   )
                 }

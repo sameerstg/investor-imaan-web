@@ -1,27 +1,63 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import type { ApexOptions } from 'apexcharts';
+import { GetDayDataCached, GetDayDataRealtime, GetAllTimeData } from '@/methods/stockPrice';
 
 // Dynamically import ApexCharts to avoid SSR issues
 const ApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 interface TimeSeriesData {
-  timestamp: number; // UNIX timestamp in seconds
+  timestamp: number;
   price: number;
   volume: number;
 }
 
+
 interface StockChartProps {
   symbol: string;
   companyName: string;
-  dayData: TimeSeriesData[];
-  allTimeData: TimeSeriesData[];
 }
 
-const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, dayData, allTimeData }) => {
+const StockChart: React.FC<StockChartProps> = ({ symbol, companyName }) => {
   const [timeRange, setTimeRange] = useState<'1H' | '1D' | '1W' | '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'All'>('1D');
   const [chartType, setChartType] = useState<'line' | 'candlestick'>('line');
+  const [dayData, setDayData] = useState<TimeSeriesData[]>([]);
+  const [allTimeData, setAllTimeData] = useState<TimeSeriesData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        // First get cached data
+        const [cachedDay, allTime] = await Promise.all([
+          GetDayDataCached(symbol),
+          GetAllTimeData(symbol)
+        ]);
+
+        if (cachedDay?.length) {
+          setDayData(cachedDay);
+        }
+        if (allTime) {
+          setAllTimeData(allTime as TimeSeriesData[]);
+        }
+
+        // Then get real-time data
+        const realtimeDay = await GetDayDataRealtime(symbol);
+        if (Array.isArray(realtimeDay) && realtimeDay.length > 0) {
+          setDayData(realtimeDay as TimeSeriesData[]);
+        }
+      } catch (error) {
+        console.error(`Error fetching data for ${symbol}:`, error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [symbol]);
 
   const getSelectedData = () => {
     return timeRange === '1D' || timeRange === '1H' ? dayData : allTimeData;
@@ -158,7 +194,15 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, dayData, a
       </div>
 
       {/* Chart */}
-      {selectedData.length > 0 ? (
+      {loading ? (
+        <div className="h-[400px] flex items-center justify-center">
+          <p className="text-gray-500">Loading {symbol} data...</p>
+        </div>
+      ) : dayData.length === 0 ? (
+        <div className="h-[400px] flex items-center justify-center">
+          <p className="text-gray-500">No data available for {symbol}</p>
+        </div>
+      ) : (
         <ApexChart
           type={chartType}
           height={400}
@@ -170,8 +214,6 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, dayData, a
           ]}
           options={chartOptions}
         />
-      ) : (
-        <p className="text-gray-500 text-sm">Loading stock data...</p>
       )}
     </div>
   );
