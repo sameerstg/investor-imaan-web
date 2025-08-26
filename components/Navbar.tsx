@@ -1,9 +1,9 @@
 "use client";
 import React, { useState } from "react";
 import Link from "next/link";
-import { ModeToggle } from "./ModeToggle";
 import { signIn, signOut, useSession } from "next-auth/react";
 import { Menu, X } from "lucide-react"; // hamburger & close icons
+import { ModeToggle } from "./ThemeToggleButton";
 
 function Navbar() {
   const { status } = useSession();
