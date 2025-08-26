@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import { debounce } from "lodash";
 import pLimit from "p-limit";
+import Link from "next/link";
 
 // Define TimeSeriesData interface
 interface TimeSeriesData {
@@ -57,10 +58,8 @@ interface SymbolSummaryItemProps {
 const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedProfit, currentPrice, isLoadingPrice, selectedSymbol, toggleSymbolTrades }: SymbolSummaryItemProps) => {
   const unrealizedProfit = currentPrice && quantity > 0 ? currentPrice * quantity - cost : 0;
   const totalProfit = unrealizedProfit + realizedProfit;
-  // Calculate percentage profit/loss
   const percentProfit = cost !== 0 ? (totalProfit / Math.abs(cost)) * 100 : 0;
 
-  // Correct color/arrow logic: red if loss, green if profit
   let avgPriceColor = "text-gray-800";
   let ArrowIcon = null;
   if (currentPrice !== null && quantity > 0) {
@@ -96,7 +95,7 @@ const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedP
         {isLoadingPrice ? (
           <div className="flex items-center justify-end gap-2">
             <span className="text-gray-800">{currentPrice ? currentPrice.toFixed(2) : "N/A"}</span>
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader2 className="text-gray-800 w-4 h-4 animate-spin" />
           </div>
         ) : (
           <span className="text-gray-800">{currentPrice ? currentPrice.toFixed(2) : "N/A"}</span>
@@ -131,31 +130,19 @@ export default function Page({ params }: Prop) {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Trade | null>(null);
-  const [networth, setNetworth] = useState(0);
   const [symbolSummary, setSymbolSummary] = useState<
     Record<string, { cost: number; quantity: number; avgBuyPrice: number; realizedProfit: number }>
   >({});
   const [currentPrices, setCurrentPrices] = useState<Record<string, { price: number | null; loading: boolean }>>({});
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [isSummaryOpen, setIsSummaryOpen] = useState(true);
-  const [sortBy, setSortBy] = useState<"date" | "symbol" | "type">("date");
   const [isExporting, setIsExporting] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const tradesPerPage = 10;
-
   const [symbol, setSymbol] = useState("");
   const [tradeDate, setTradeDate] = useState("");
   const [type, setType] = useState<"BUY" | "SELL">("BUY");
   const [quantity, setQuantity] = useState(0);
   const [price, setPrice] = useState(0);
   const [fees, setFees] = useState(0);
-
-  // Pagination logic
-  const filteredTrades = selectedSymbol ? trades.filter((t) => t.symbol === selectedSymbol) : trades;
-  const totalPages = Math.ceil(filteredTrades.length / tradesPerPage);
-  const startIndex = (currentPage - 1) * tradesPerPage;
-  const endIndex = startIndex + tradesPerPage;
-  const paginatedTrades = filteredTrades.slice(startIndex, endIndex);
 
   // Fetch current price for a single symbol
   const fetchCurrentPrice = useCallback(async (symbol: string): Promise<{ symbol: string; price: number | null }> => {
@@ -276,39 +263,85 @@ export default function Page({ params }: Prop) {
 
   useEffect(() => {
     setSymbolSummary(summary);
-    setNetworth(totalNetWorth);
   }, [summary, totalNetWorth]);
 
   useEffect(() => {
     fetchPortfolio();
   }, [fetchPortfolio]);
 
+  // Fetch cached prices as soon as trades are loaded, before summary is calculated
   useEffect(() => {
-    fetchAllPrices();
-    return () => fetchAllPrices.cancel();
-  }, [symbolSummary, fetchAllPrices]);
-
-  // Use cached dayData for first time so users won't have to wait
-  useEffect(() => {
-    // Only run on first load after trades are set
     if (!trades.length) return;
-    const symbols = Array.from(new Set(trades.map(t => t.symbol)));
+    
     let cancelled = false;
-    (async () => {
+    const symbols = Array.from(new Set(trades.map(t => t.symbol)));
+
+    // First fetch all cached data
+    const fetchCachedPrices = async () => {
       const cachedPrices: Record<string, { price: number | null; loading: boolean }> = {};
       await Promise.all(symbols.map(async (symbol) => {
-        const cachedData = await GetDayDataCached(symbol);
-        if (cachedData?.length) {
-          cachedPrices[symbol] = {
-            price: cachedData[cachedData.length - 1].price,
-            loading: false,
-          };
+        try {
+          const cachedData = await GetDayDataCached(symbol);
+          if (cachedData?.length) {
+            cachedPrices[symbol] = {
+              price: cachedData[cachedData.length - 1].price,
+              loading: true, // Still loading as we'll fetch real-time data next
+            };
+          } else {
+            cachedPrices[symbol] = { price: null, loading: true };
+          }
+        } catch (error) {
+          console.error(`Error fetching cached data for ${symbol}:`, error);
+          cachedPrices[symbol] = { price: null, loading: true };
         }
       }));
+
       if (!cancelled) {
-        setCurrentPrices(prev => ({ ...cachedPrices, ...prev }));
+        setCurrentPrices(cachedPrices);
       }
-    })();
+    };
+
+    // Then fetch real-time data
+    const fetchRealtimePrices = async () => {
+      const limit = pLimit(5);
+      const results = await Promise.all(
+        symbols.map(symbol => 
+          limit(async () => {
+            try {
+              const realTimeData = await GetDayDataRealtime(symbol) as TimeSeriesData[];
+              return {
+                symbol,
+                price: realTimeData.length ? realTimeData[realTimeData.length - 1].price : null
+              };
+            } catch (error) {
+              console.error(`Error fetching real-time data for ${symbol}:`, error);
+              return { symbol, price: null };
+            }
+          })
+        )
+      );
+
+      if (!cancelled) {
+        setCurrentPrices(prev => {
+          const newPrices = { ...prev };
+          results.forEach(({ symbol, price }) => {
+            newPrices[symbol] = {
+              price: price !== null ? price : prev[symbol]?.price || null, // Keep cached price if realtime fails
+              loading: false
+            };
+          });
+          return newPrices;
+        });
+      }
+    };
+
+    const fetchAllData = async () => {
+      await fetchCachedPrices();
+      await fetchRealtimePrices();
+    };
+
+    fetchAllData();
+
     return () => { cancelled = true; };
   }, [trades]);
 
@@ -322,17 +355,6 @@ export default function Page({ params }: Prop) {
     setTradeDate(new Date().toISOString().slice(0, 16));
     setIsModalOpen(true);
   }, [selectedSymbol]);
-
-  const openEditModal = useCallback((trade: Trade) => {
-    setEditingTrade(trade);
-    setSymbol(trade.symbol);
-    setType(trade.type);
-    setQuantity(trade.quantity);
-    setPrice(trade.price);
-    setFees(trade.fees);
-    setTradeDate(trade.tradeDate.toISOString().slice(0, 16));
-    setIsModalOpen(true);
-  }, []);
 
   const handleSaveTrade = useCallback(async (keepOpen = false) => {
     if (!symbol || quantity <= 0 || price <= 0 || !tradeDate) return;
@@ -377,10 +399,6 @@ export default function Page({ params }: Prop) {
     }
   }, [symbol, type, quantity, price, fees, tradeDate, id, editingTrade, selectedSymbol]);
 
-  const confirmDeleteTrade = useCallback((trade: Trade) => {
-    setConfirmDelete(trade);
-  }, []);
-
   const handleDeleteTrade = useCallback(async () => {
     if (!confirmDelete) return;
     setDeletingId(confirmDelete.id);
@@ -401,22 +419,14 @@ export default function Page({ params }: Prop) {
 
   const toggleSymbolTrades = useCallback((symbol: string) => {
     setSelectedSymbol((prev) => (prev === symbol ? null : symbol));
-    setCurrentPage(1); // Reset to first page when changing symbol
   }, []);
 
-  const sortTrades = useCallback((trades: Trade[]) => {
-    return [...trades].sort((a, b) => {
-      if (sortBy === "date") return new Date(b.tradeDate).getTime() - new Date(a.tradeDate).getTime();
-      if (sortBy === "symbol") return a.symbol.localeCompare(b.symbol);
-      if (sortBy === "type") return a.type.localeCompare(b.type);
-      return 0;
-    });
-  }, [sortBy]);
 
+  // Export all asset statement (all trades, not just paginated)
   const exportToExcel = useCallback(() => {
     setIsExporting(true);
     try {
-      const exportData = paginatedTrades.map((trade) => ({
+      const exportData = trades.map((trade) => ({
         Symbol: trade.symbol,
         Type: trade.type,
         Quantity: trade.quantity,
@@ -438,7 +448,7 @@ export default function Page({ params }: Prop) {
 
       const worksheet = XLSX.utils.json_to_sheet(exportData);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Trades");
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Asset Statement");
 
       const colWidths = [
         { wch: 10 }, // Symbol
@@ -453,9 +463,9 @@ export default function Page({ params }: Prop) {
       ];
       worksheet["!cols"] = colWidths;
 
-      const portfolioName = portfolio?.name.replace(/\s+/g, "_") || "Portfolio";
+      const portfolioName = portfolio?.name?.replace(/\s+/g, "_") || "Portfolio";
       const date = new Date().toISOString().slice(0, 10);
-      const fileName = `${portfolioName}_Trades_${date}.xlsx`;
+      const fileName = `${portfolioName}_Asset_Statement_${date}.xlsx`;
 
       const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
       const data = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -472,11 +482,7 @@ export default function Page({ params }: Prop) {
     } finally {
       setIsExporting(false);
     }
-  }, [paginatedTrades, portfolio, symbolSummary, currentPrices]);
-
-  const goToPage = useCallback((page: number) => {
-    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
-  }, [totalPages]);
+  }, [trades, portfolio, symbolSummary, currentPrices]);
 
   if (!id) return null;
 
@@ -513,14 +519,14 @@ export default function Page({ params }: Prop) {
               variant="outline"
               className="border-green-500 text-green-600 hover:bg-green-50 font-semibold"
               disabled={isExporting || trades.length === 0}
-              aria-label="Export trades to Excel"
+              aria-label="Export asset statement to Excel"
             >
               {isExporting ? (
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
               ) : (
                 <Download className="w-4 h-4 mr-2" />
               )}
-              Export to Excel
+              Export Asset Statement
             </Button>
             <Button
               onClick={fetchAllPrices}
@@ -533,6 +539,18 @@ export default function Page({ params }: Prop) {
               <RefreshCw className="w-4 h-4 mr-2" />
               Refresh Prices
             </Button>
+            <Link
+              href={`/portfolio/${id}/trades`}
+            >
+              <Button
+                size="lg"
+                variant="outline"
+                className="border-gray-400 text-gray-700 hover:bg-gray-100 font-semibold"
+                aria-label="Go to all trades"
+              >
+                View All Trades
+              </Button>
+            </Link>
           </div>
 
           {/* Portfolio Header */}
@@ -581,138 +599,13 @@ export default function Page({ params }: Prop) {
                       currentPrice={currentPrices[symbol]?.price}
                       isLoadingPrice={currentPrices[symbol]?.loading}
                       selectedSymbol={selectedSymbol}
-                      toggleSymbolTrades={toggleSymbolTrades}
+                      toggleSymbolTrades={() => {}} // No-op, since trade history is removed
                     />
                   ))}
                 </ul>
               )}
             </div>
           )}
-
-          {/* Trades Section */}
-          <div className="bg-white shadow-sm rounded-lg p-6">
-            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-4">
-              <h2 className="text-lg font-semibold">
-                {selectedSymbol ? `${selectedSymbol} Trades` : "All Trades"}
-              </h2>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <select
-                  className="border rounded p-2 text-sm"
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as "date" | "symbol" | "type")}
-                >
-                  <option value="date">Sort by Date</option>
-                  <option value="symbol">Sort by Symbol</option>
-                  <option value="type">Sort by Type</option>
-                </select>
-                {selectedSymbol && (
-                  <Button variant="outline" onClick={() => setSelectedSymbol(null)}>
-                    Show All Trades
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {paginatedTrades.length > 0 ? (
-              <>
-                <ul className="space-y-3">
-                  {sortTrades(paginatedTrades).map((t) => (
-                    <li
-                      key={t.id}
-                      className="border rounded-lg p-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-gray-50 hover:bg-gray-100 transition-colors"
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                        <span
-                          className={cn(
-                            "px-2 py-1 rounded text-xs font-bold",
-                            t.type === "BUY" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                          )}
-                        >
-                          {t.type}
-                        </span>
-                        <span className="text-gray-700">
-                          {t.quantity} {t.symbol} @ {t.price} (Fees: {t.fees}) (Total: {(t.quantity * t.price).toFixed(2)})
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {new Date(t.tradeDate).toLocaleString("en-GB", {
-                            day: "2-digit",
-                            month: "long",
-                            year: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openEditModal(t)}
-                          aria-label={`Edit trade for ${t.symbol}`}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => confirmDeleteTrade(t)}
-                          aria-label={`Delete trade for ${t.symbol}`}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                {/* Pagination Controls */}
-                {totalPages > 1 && (
-                  <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="text-sm text-gray-500">
-                      Showing {startIndex + 1} to {Math.min(endIndex, filteredTrades.length)} of {filteredTrades.length} trades
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        onClick={() => goToPage(currentPage - 1)}
-                        disabled={currentPage === 1}
-                        className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                        aria-label="Previous page"
-                      >
-                        Previous
-                      </Button>
-                      <div className="flex gap-1">
-                        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                          <Button
-                            key={page}
-                            onClick={() => goToPage(page)}
-                            className={`px-3 py-1 border rounded-lg text-sm font-medium ${
-                              currentPage === page
-                                ? "bg-blue-500 text-white border-blue-500"
-                                : "text-gray-700 border-gray-300 hover:bg-gray-100"
-                            }`}
-                            aria-label={`Go to page ${page}`}
-                          >
-                            {page}
-                          </Button>
-                        ))}
-                      </div>
-                      <Button
-                        onClick={() => goToPage(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                        className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                        aria-label="Next page"
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="text-gray-500 text-center py-4">
-                No trades found. Click "Create Trade" to add your first trade.
-              </p>
-            )}
-          </div>
         </>
       )}
 
