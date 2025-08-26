@@ -243,7 +243,7 @@ export default function Page({ params }: Prop) {
         });
         return newPrices;
       });
-    }, 300),
+    }, 1000*60),
     [symbolSummary, fetchCurrentPrice]
   );
 
