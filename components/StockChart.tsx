@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import type { ApexOptions } from 'apexcharts';
-import { GetDayDataCached, GetDayDataRealtime, GetAllTimeData } from '@/methods/stockPrice';
+import { GetDayDataRealtime, GetAllTimeData } from '@/methods/stockPrice';
 
 // Dynamically import ApexCharts to avoid SSR issues
 const ApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -30,25 +30,20 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName }) => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        
-        // First get cached data
-        const [cachedDay, allTime] = await Promise.all([
-          GetDayDataCached(symbol),
-          GetAllTimeData(symbol)
-        ]);
-
-        if (cachedDay?.length) {
-          setDayData(cachedDay);
-        }
-        if (allTime) {
-          setAllTimeData(allTime as TimeSeriesData[]);
-        }
-
-        // Then get real-time data
         const realtimeDay = await GetDayDataRealtime(symbol);
         if (Array.isArray(realtimeDay) && realtimeDay.length > 0) {
           setDayData(realtimeDay as TimeSeriesData[]);
         }
+        const [allTime] = await Promise.all([
+          GetAllTimeData(symbol)
+        ]);
+
+
+        if (allTime) {
+          setAllTimeData(allTime as TimeSeriesData[]);
+        }
+
+
       } catch (error) {
         console.error(`Error fetching data for ${symbol}:`, error);
       } finally {
@@ -163,9 +158,8 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName }) => {
         {['1H', '1D', '1W', '1M', '6M', 'YTD', '1Y', '5Y', 'All'].map((range) => (
           <button
             key={range}
-            className={`px-3 py-1.5 rounded text-sm font-medium ${
-              timeRange === range ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-            }`}
+            className={`px-3 py-1.5 rounded text-sm font-medium ${timeRange === range ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+              }`}
             onClick={() => setTimeRange(range as typeof timeRange)}
           >
             {range}
@@ -177,17 +171,15 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName }) => {
       <div className="flex gap-2 mb-6 justify-end">
         <button
           onClick={() => setChartType('line')}
-          className={`px-4 py-1.5 rounded text-sm font-medium ${
-            chartType === 'line' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-          }`}
+          className={`px-4 py-1.5 rounded text-sm font-medium ${chartType === 'line' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+            }`}
         >
           Line
         </button>
         <button
           onClick={() => setChartType('candlestick')}
-          className={`px-4 py-1.5 rounded text-sm font-medium ${
-            chartType === 'candlestick' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-          }`}
+          className={`px-4 py-1.5 rounded text-sm font-medium ${chartType === 'candlestick' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+            }`}
         >
           Candlestick
         </button>

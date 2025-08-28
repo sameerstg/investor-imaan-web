@@ -34,7 +34,7 @@ function Navbar() {
             Calculator
           </Link>
           <Link
-            href={status === "unauthenticated" ? "/sign-in" : "/portfolio"}
+            href={"/portfolio"}
             className="text-white hover:bg-gray-700 px-3 py-2 rounded-md text-sm font-medium"
           >
             Portfolio Tracker

@@ -4,7 +4,7 @@ import { symbolsOfShariahCompliantStocks } from '@/store/constant';
 import Link from 'next/link';
 import React, { useState, useEffect, useCallback } from 'react';
 import { debounce } from 'lodash';
-import { GetDayDataCached, GetDayDataRealtime } from '@/methods/stockPrice';
+import { GetDayDataRealtime } from '@/methods/stockPrice';
 import { TimeSeriesData } from '@/methods/stocks';
 
 // Simplified interface without chart data
@@ -32,17 +32,6 @@ export default function Page() {
 
   // Simplified fetch for stock summary data only
   const fetchStockData = useCallback(async (symbol: string): Promise<StockSummary> => {
-    const cachedData = await GetDayDataCached(symbol) as TimeSeriesData[] | null;
-    if (cachedData?.length) {
-      const prices = cachedData.map(item => item.price);
-      return {
-        symbol,
-        dayHigh: Math.max(...prices),
-        dayLow: Math.min(...prices),
-        volume: cachedData.reduce((sum, item) => sum + item.volume, 0),
-        currentPrice: prices[prices.length - 1] || 0,
-      };
-    }
 
     try {
       const dayData = await GetDayDataRealtime(symbol) as TimeSeriesData[];
@@ -74,46 +63,40 @@ export default function Page() {
   const fetchFilteredStockData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Filter symbols based on search query
       const filteredSymbols = symbolsOfShariahCompliantStocks.filter(
-        (symbol) =>
-          symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          `${symbol} Name`.toLowerCase().includes(searchQuery.toLowerCase())
+        (symbol) => symbol.toLowerCase().includes(searchQuery.toLowerCase())
       );
 
-      // Calculate pagination indices
       const startIndex = (currentPage - 1) * stocksPerPage;
       const endIndex = startIndex + stocksPerPage;
-      const symbolsToFetch = filteredSymbols.slice(startIndex, endIndex).filter(
-        (symbol) => !fetchedSymbols.has(symbol)
-      );
+      const symbolsToFetch = filteredSymbols.slice(startIndex, endIndex)
+        .filter((symbol) => !fetchedSymbols.has(symbol));
 
       if (symbolsToFetch.length === 0) return;
 
-      // Fetch data in parallel for paginated symbols
-      const results = await Promise.all(symbolsToFetch.map((symbol) => fetchStockData(symbol)));
-
-      // Update fetched symbols
-      setFetchedSymbols((prev) => new Set([...prev, ...symbolsToFetch]));
-
-      // Update stock data in one go
-      setStockData((prev) => {
-        const existingDataMap = new Map(prev.map((stock) => [stock.symbol, stock]));
-        results.forEach((result) => existingDataMap.set(result.symbol, result));
-        return symbolsOfShariahCompliantStocks.map(
-          (symbol) => existingDataMap.get(symbol) || {
-            symbol,
-            dayHigh: 0,
-            dayLow: 0,
-            volume: 0,
-            currentPrice: 0,
-          }
-        );
-      });
+      // Fetch data sequentially for paginated symbols
+      for (const symbol of symbolsToFetch) {
+        const dayData = await GetDayDataRealtime(symbol);
+        if (Array.isArray(dayData) && dayData.length > 0) {
+          const prices = dayData.map(item => item.price);
+          setStockData(prev => {
+            const existingDataMap = new Map(prev.map(stock => [stock.symbol, stock]));
+            existingDataMap.set(symbol, {
+              symbol,
+              dayHigh: Math.max(...prices),
+              dayLow: Math.min(...prices),
+              volume: dayData.reduce((sum, item) => sum + item.volume, 0),
+              currentPrice: prices[prices.length - 1]
+            });
+            return [...existingDataMap.values()];
+          });
+          setFetchedSymbols(prev => new Set([...prev, symbol]));
+        }
+      }
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery, currentPage, fetchedSymbols, fetchStockData]);
+  }, [searchQuery, currentPage, fetchedSymbols]);
 
   // Debounced fetch handler
   const debouncedFetch = useCallback(debounce(fetchFilteredStockData, 300), [fetchFilteredStockData]);
@@ -135,48 +118,6 @@ export default function Page() {
     }));
     setStockData(initialStockData);
 
-    const loadCachedData = async () => {
-      // Fetch cached data only for the first page initially
-      const startIndex = (currentPage - 1) * stocksPerPage;
-      const endIndex = startIndex + stocksPerPage;
-      const initialSymbols = symbolsOfShariahCompliantStocks.slice(startIndex, endIndex);
-
-      const results = await Promise.all(
-        initialSymbols.map(async (symbol) => {
-          const cachedData = await GetDayDataCached(symbol) as TimeSeriesData[] | null;
-          if (cachedData?.length) {
-            const prices = cachedData.map(item => item.price);
-            return {
-              symbol,
-              dayHigh: Math.max(...prices),
-              dayLow: Math.min(...prices),
-              volume: cachedData.reduce((sum, item) => sum + item.volume, 0),
-              currentPrice: prices[prices.length - 1] || 0,
-            } as StockSummary;
-          }
-          return null;
-        })
-      );
-
-      const validResults = results.filter((result): result is StockSummary => result !== null);
-      if (validResults.length > 0) {
-        setFetchedSymbols((prev) => new Set([...prev, ...validResults.map((r) => r.symbol)]));
-        setStockData((prev) => {
-          const existingDataMap = new Map(prev.map((stock) => [stock.symbol, stock]));
-          validResults.forEach((result) => existingDataMap.set(result.symbol, result));
-          return symbolsOfShariahCompliantStocks.map(
-            (symbol) => existingDataMap.get(symbol) || {
-              symbol,
-              dayHigh: 0,
-              dayLow: 0,
-              volume: 0,
-              currentPrice: 0,
-            }
-          );
-        });
-      }
-    };
-    loadCachedData();
   }, []); // Run only once on mount
 
   // Handle page change
@@ -308,8 +249,8 @@ export default function Page() {
                   key={page}
                   onClick={() => goToPage(page)}
                   className={`px-3 py-1 border rounded-lg text-sm font-medium ${currentPage === page
-                      ? 'bg-blue-500 text-white border-blue-500'
-                      : 'text-gray-700 border-gray-300 hover:bg-gray-100'
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'text-gray-700 border-gray-300 hover:bg-gray-100'
                     }`}
                   aria-label={`Go to page ${page}`}
                 >

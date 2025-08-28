@@ -1,18 +1,12 @@
-'use server';
+"use server";
 import { TimeSeriesData } from "./stocks";
-// In-memory cache
-const cache = new Map<string, { data: any; timestamp: number }>();
 
-// Utility function to check if cache is still valid
-function isCacheValid(timestamp: number, duration: number): boolean {
-  return Date.now() - timestamp < duration;
-}
 export async function GetDayDataRealtime(symbol: string) {
   try {
     const response = await fetch(
       `https://dps.psx.com.pk/timeseries/int/${symbol}`,
       {
-        cache: "no-store",
+        next: { revalidate: 60 }, // cache for 60 seconds
       }
     );
     const data = await response.json();
@@ -25,9 +19,6 @@ export async function GetDayDataRealtime(symbol: string) {
       })
     );
 
-    // Cache the result for future use by GetDayData or GetDayDataCached
-    const cacheKey = `dayData_${symbol}`;
-    cache.set(cacheKey, { data: formattedTimeSeries, timestamp: Date.now() });
 
     return formattedTimeSeries;
   } catch (error: any) {
@@ -39,30 +30,16 @@ export async function GetDayDataRealtime(symbol: string) {
   }
 }
 
-export async function GetDayDataCached(symbol: string) {
-  const cacheKey = `dayData_${symbol}`;
-  const cached = cache.get(cacheKey);
-
-  if (cached && isCacheValid(cached.timestamp, 1000 * 60 * 60 * 24)) {
-    return cached.data;
-  }
-
-  return null;
-}
 
 export async function GetAllTimeData(symbol: string) {
-  const cacheKey = `allTimeData_${symbol}`;
-  const cached = cache.get(cacheKey);
 
-  if (cached && isCacheValid(cached.timestamp, 1000 * 60 * 60 * 24)) {
-    return cached.data;
-  }
+
 
   try {
     const response = await fetch(
       `https://dps.psx.com.pk/timeseries/eod/${symbol}`,
       {
-        cache: "no-store",
+        next: { revalidate: 60*60*60*24 }, 
       }
     );
     const data = await response.json();
@@ -76,7 +53,6 @@ export async function GetAllTimeData(symbol: string) {
     );
 
     // Cache the result
-    cache.set(cacheKey, { data: formattedTimeSeries, timestamp: Date.now() });
 
     return formattedTimeSeries;
   } catch (error: any) {

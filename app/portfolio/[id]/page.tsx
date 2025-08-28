@@ -14,35 +14,27 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { createTrade, deleteTrade, updateTrade } from "@/methods/trade/trade";
 import { getPortfolioById } from "@/methods/portfolio/portfolio";
-import { GetDayDataCached, GetDayDataRealtime } from "@/methods/stockPrice";
+import { GetDayDataRealtime } from "@/methods/stockPrice";
 import { Loader2, Download, RefreshCw, ArrowUp, ArrowDown } from "lucide-react";
 import { Trade } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
-import { debounce } from "lodash";
 import pLimit from "p-limit";
 import Link from "next/link";
 import StockChart from "@/components/StockChart";
-import TimeSeriesChart from "@/components/TimeSeriesChart"
+import TimeSeriesChart from "@/components/TimeSeriesChart";
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
-  PointElement, 
+  PointElement,
   LineElement,
   Title,
   Tooltip,
   Legend
 } from 'chart.js';
 
-// Define TimeSeriesData interface
-interface TimeSeriesData {
-  timestamp: number;
-  price: number;
-  volume: number;
-  high?: number;
-  low?: number;
-}
+
 
 type PortfolioWithTrades = {
   id: string;
@@ -88,7 +80,7 @@ const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedP
   return (
     <>
       <li className={cn(
-        "grid grid-cols-6 items-center rounded-lg p-3 transition-colors", // Changed to 6 columns
+        "grid grid-cols-6 items-center rounded-lg p-3 transition-colors",
         selectedSymbol === symbol ? "bg-blue-100" : "hover:bg-blue-50"
       )}>
         <div className="flex flex-col">
@@ -117,16 +109,23 @@ const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedP
           <span className={cost >= 0 ? "text-green-600" : "text-red-600"}>{cost.toFixed(2)}</span>
           <span className="block text-sm text-gray-500">Cost</span>
         </div>
-        <div className="text-right">
-          <span className={totalProfit >= 0 ? "text-green-600" : "text-red-600"}>
-            {totalProfit.toFixed(2)}
-            <span className="ml-1 text-xs">
-              ({percentProfit >= 0 ? "+" : ""}
-              {percentProfit.toFixed(2)}%)
+        {isLoadingPrice ? (
+          <div className="text-right">
+            <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+            <span className="block text-sm text-gray-500">Total Profit</span>
+          </div>
+        ) : (
+          <div className="text-right">
+            <span className={totalProfit >= 0 ? "text-green-600" : "text-red-600"}>
+              {totalProfit.toFixed(2)}
+              <span className="ml-1 text-xs">
+                ({percentProfit >= 0 ? "+" : ""}
+                {percentProfit.toFixed(2)}%)
+              </span>
             </span>
-          </span>
-          <span className="block text-sm text-gray-500">Total Profit</span>
-        </div>
+            <span className="block text-sm text-gray-500">Total Profit</span>
+          </div>
+        )}
         <div className="text-right">
           <button
             onClick={() => toggleChart(symbol)}
@@ -134,7 +133,7 @@ const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedP
             aria-label={visibleCharts[symbol] ? `Hide chart for ${symbol}` : `Show chart for ${symbol}`}
           >
             <svg
-              className={`w-5 h-5 transfo transition-transfo ${visibleCharts[symbol] ? 'rotate-180' : ''}`}
+              className={`w-5 h-5 transition-transform ${visibleCharts[symbol] ? 'rotate-180' : ''}`}
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -196,56 +195,48 @@ export default function Page({ params }: Prop) {
     }));
   }, []);
 
-  // Fetch current price for a single symbol
-  const fetchCurrentPrice = useCallback(async (symbol: string): Promise<{ symbol: string; price: number | null }> => {
-    const limit = pLimit(5); // Limit to 5 concurrent requests
-    try {
-      const cachedData = await limit(() => GetDayDataCached(symbol));
-      if (cachedData?.length) {
-        return { symbol, price: cachedData[cachedData.length - 1].price };
+  
+
+  // Fetch prices for all symbols in summary sequentially
+  const fetchAllPrices = useCallback(async () => {
+    const symbols = Object.keys(symbolSummary);
+    if (symbols.length === 0) return;
+
+    // Set all to loading first
+    setCurrentPrices((prev) => {
+      const newPrices = { ...prev };
+      symbols.forEach((symbol) => {
+        newPrices[symbol] = {
+          price: newPrices[symbol]?.price || null,
+          loading: true,
+        };
+      });
+      return newPrices;
+    });
+
+    // Fetch one by one
+    for (const symbol of symbols) {
+      try {
+        const realTimeData = await GetDayDataRealtime(symbol) as any;
+        setCurrentPrices(prev => ({
+          ...prev,
+          [symbol]: {
+            price: realTimeData?.length ? realTimeData[0].price : prev[symbol]?.price || null,
+            loading: false
+          }
+        }));
+      } catch (error) {
+        console.error(`Error fetching price for ${symbol}:`, error);
+        setCurrentPrices(prev => ({
+          ...prev,
+          [symbol]: {
+            price: prev[symbol]?.price || null,
+            loading: false
+          }
+        }));
       }
-      const realTimeData : any = await limit(() => GetDayDataRealtime(symbol));
-      return { symbol, price: realTimeData.length ? realTimeData[realTimeData.length - 1].price : null };
-    } catch (error) {
-      console.error(`Error fetching price for ${symbol}:`, error);
-      return { symbol, price: null }; // Return null to keep old price
     }
-  }, []);
-
-  // Fetch prices for all symbols in summary (debounced)
-  const fetchAllPrices = useCallback(
-    debounce(async () => {
-      const symbols = Object.keys(symbolSummary);
-      if (symbols.length === 0) return;
-
-      // Set loading state without resetting prices
-      setCurrentPrices((prev) => {
-        const newPrices = { ...prev };
-        symbols.forEach((symbol) => {
-          newPrices[symbol] = {
-            price: newPrices[symbol]?.price || null, // Preserve existing price
-            loading: true,
-          };
-        });
-        return newPrices;
-      });
-
-      const results = await Promise.all(symbols.map((symbol) => fetchCurrentPrice(symbol)));
-
-      // Update only with successful fetches
-      setCurrentPrices((prev) => {
-        const newPrices = { ...prev };
-        results.forEach(({ symbol, price }) => {
-          newPrices[symbol] = {
-            price: price !== null ? price : prev[symbol]?.price || null, // Keep old price if fetch fails
-            loading: false,
-          };
-        });
-        return newPrices;
-      });
-    }, 1000*60),
-    [symbolSummary, fetchCurrentPrice]
-  );
+  }, [symbolSummary]);
 
   const fetchPortfolio = useCallback(async () => {
     setLoading(true);
@@ -322,9 +313,9 @@ export default function Page({ params }: Prop) {
   const calculatePnLHistory = useCallback(() => {
     const pnlHistory: { date: string; pnl: number }[] = [];
     let runningPnL = 0;
-    
+
     // Sort trades by date
-    const sortedTrades = [...trades].sort((a, b) => 
+    const sortedTrades = [...trades].sort((a, b) =>
       new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime()
     );
 
@@ -332,7 +323,7 @@ export default function Page({ params }: Prop) {
 
     sortedTrades.forEach(trade => {
       const date = new Date(trade.tradeDate).toISOString().split('T')[0];
-      
+
       if (trade.type === 'BUY') {
         if (!holdings[trade.symbol]) {
           holdings[trade.symbol] = { quantity: 0, totalCost: 0 };
@@ -344,7 +335,7 @@ export default function Page({ params }: Prop) {
         const avgBuyPrice = holdings[trade.symbol]?.totalCost / holdings[trade.symbol]?.quantity || 0;
         const profit = (trade.price - avgBuyPrice) * trade.quantity - trade.fees;
         runningPnL += profit;
-        
+
         if (holdings[trade.symbol]) {
           holdings[trade.symbol].quantity -= trade.quantity;
           if (holdings[trade.symbol].quantity > 0) {
@@ -389,76 +380,47 @@ export default function Page({ params }: Prop) {
   // Fetch cached prices as soon as trades are loaded, before summary is calculated
   useEffect(() => {
     if (!trades.length) return;
-
     let cancelled = false;
-    const symbols = Array.from(new Set(trades.map(t => t.symbol)));
 
-    // First fetch all cached data
-    const fetchCachedPrices = async () => {
-      const cachedPrices: Record<string, { price: number | null; loading: boolean }> = {};
-      await Promise.all(symbols.map(async (symbol) => {
+    const fetchPrices = async () => {
+      const symbols = Array.from(new Set(trades.map(t => t.symbol)));
+
+      // Set all to loading
+      setCurrentPrices(prev => {
+        const newPrices = { ...prev };
+        symbols.forEach(s => {
+          newPrices[s] = { price: newPrices[s]?.price || null, loading: true };
+        });
+        return newPrices;
+      });
+
+      // Fetch real-time data sequentially
+      for (const symbol of symbols) {
+        if (cancelled) break;
         try {
-          const cachedData = await GetDayDataCached(symbol);
-          if (cachedData?.length) {
-            cachedPrices[symbol] = {
-              price: cachedData[cachedData.length - 1].price,
-              loading: true, // Still loading as we'll fetch real-time data next
-            };
-          } else {
-            cachedPrices[symbol] = { price: null, loading: true };
+          const realTimeData = await GetDayDataRealtime(symbol) as any;
+          if (!cancelled) {
+            setCurrentPrices(prev => ({
+              ...prev,
+              [symbol]: {
+                price: realTimeData?.length ? realTimeData[0].price : null,
+                loading: false
+              }
+            }));
           }
         } catch (error) {
-          console.error(`Error fetching cached data for ${symbol}:`, error);
-          cachedPrices[symbol] = { price: null, loading: true };
+          console.error(`Error fetching real-time data for ${symbol}:`, error);
+          if (!cancelled) {
+            setCurrentPrices(prev => ({
+              ...prev,
+              [symbol]: { price: null, loading: false }
+            }));
+          }
         }
-      }));
-
-      if (!cancelled) {
-        setCurrentPrices(cachedPrices);
       }
     };
 
-    // Then fetch real-time data
-    const fetchRealtimePrices = async () => {
-      const limit = pLimit(5);
-      const results = await Promise.all(
-        symbols.map(symbol =>
-          limit(async () => {
-            try {
-              const realTimeData = await GetDayDataRealtime(symbol) as TimeSeriesData[];
-              return {
-                symbol,
-                price: realTimeData.length ? realTimeData[realTimeData.length - 1].price : null
-              };
-            } catch (error) {
-              console.error(`Error fetching real-time data for ${symbol}:`, error);
-              return { symbol, price: null };
-            }
-          })
-        )
-      );
-
-      if (!cancelled) {
-        setCurrentPrices(prev => {
-          const newPrices = { ...prev };
-          results.forEach(({ symbol, price }) => {
-            newPrices[symbol] = {
-              price: price !== null ? price : prev[symbol]?.price || null, // Keep cached price if realtime fails
-              loading: false
-            };
-          });
-          return newPrices;
-        });
-      }
-    };
-
-    const fetchAllData = async () => {
-      await fetchCachedPrices();
-      await fetchRealtimePrices();
-    };
-
-    fetchAllData();
-
+    fetchPrices();
     return () => { cancelled = true; };
   }, [trades]);
 
@@ -534,7 +496,6 @@ export default function Page({ params }: Prop) {
     }
   }, [confiDelete, selectedSymbol, trades]);
 
-
   // Export all asset statement (all trades, not just paginated)
   const exportToExcel = useCallback(() => {
     setIsExporting(true);
@@ -581,7 +542,7 @@ export default function Page({ params }: Prop) {
       const fileName = `${portfolioName}_Asset_Statement_${date}.xlsx`;
 
       const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-      const data = new Blob([excelBuffer], { type: "application/vnd.openxmlfoats-officedocument.spreadsheetml.sheet" });
+      const data = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const url = window.URL.createObjectURL(data);
       const link = document.createElement("a");
       link.href = url;
@@ -596,6 +557,15 @@ export default function Page({ params }: Prop) {
       setIsExporting(false);
     }
   }, [trades, portfolio, symbolSummary, currentPrices]);
+
+  const isAnyPriceLoading = useMemo(() => Object.values(currentPrices).some(p => p.loading), [currentPrices]);
+
+  // Calculate loaded and total stocks
+  const { loadedStocks, totalStocks } = useMemo(() => {
+    const symbols = Object.keys(symbolSummary);
+    const loaded = symbols.filter(symbol => !currentPrices[symbol]?.loading).length;
+    return { loadedStocks: loaded, totalStocks: symbols.length };
+  }, [symbolSummary, currentPrices]);
 
   if (!id) return null;
 
@@ -674,35 +644,54 @@ export default function Page({ params }: Prop) {
               <div className="bg-gray-100 rounded-lg p-4">
                 <div className="text-sm text-gray-600 mb-1">Total Portfolio Cost</div>
                 <div className="text-2xl font-bold text-gray-900">
-                   {totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
               <div className={`rounded-lg p-4 ${totalPnL >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
                 <div className="text-sm text-gray-600 mb-1">Total Profit/Loss</div>
-                <div className={`text-2xl font-bold ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                   {totalPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  <span className="text-sm ml-2">
-                    ({totalPnLPercent >= 0 ? '+' : ''}{totalPnLPercent.toFixed(2)}%)
-                  </span>
-                </div>
+                {isAnyPriceLoading ? (
+                  <div className="flex items-center justify-start gap-2">
+                    <Loader2 className="w-6 h-6 animate-spin text-gray-500" />
+                    <span className="text-sm text-gray-500">Loading {loadedStocks}/{totalStocks} stocks...</span>
+                  </div>
+                ) : (
+                  <div className={`text-2xl font-bold ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {totalPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span className="text-sm ml-2">
+                      ({totalPnLPercent >= 0 ? '+' : ''}{totalPnLPercent.toFixed(2)}%)
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           {/* PnL Chart */}
-          <TimeSeriesChart
-            title="Portfolio PnL"
-            dayData={pnlData.map(d => ({ x: d.date, y: d.pnl.toFixed(2) })) as any[]}
-            allTimeData={pnlData.map(d => ({ x: d.date, y: d.pnl.toFixed(2) })) as any[]}
-            yAxisTitle="Profit/Loss"
-            lineColor={totalPnL >= 0 ? "#16a34a" : "#dc2626"}
-            fillColor={totalPnL >= 0 ? "rgba(22, 163, 74, 0.5)" : "rgba(220, 38, 38, 0.5)"}
-          />
+          {isAnyPriceLoading ? (
+            <Skeleton className="h-64 w-full rounded-lg" />
+          ) : (
+            <TimeSeriesChart
+              title="Portfolio PnL"
+              dayData={pnlData.map(d => ({ x: d.date, y: d.pnl.toFixed(2) })) as any[]}
+              allTimeData={pnlData.map(d => ({ x: d.date, y: d.pnl.toFixed(2) })) as any[]}
+              yAxisTitle="Profit/Loss"
+              lineColor={totalPnL >= 0 ? "#16a34a" : "#dc2626"}
+              fillColor={totalPnL >= 0 ? "rgba(22, 163, 74, 0.5)" : "rgba(220, 38, 38, 0.5)"}
+            />
+          )}
 
           {/* Symbol Summary */}
           {Object.keys(symbolSummary).length > 0 && (
             <div className="bg-white shadow-sm rounded-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">Symbol Summary</h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Symbol Summary</h3>
+                {isAnyPriceLoading && (
+                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Loading {loadedStocks}/{totalStocks} stocks...</span>
+                  </div>
+                )}
+              </div>
               <ul className="space-y-2">
                 {Object.entries(symbolSummary).map(([symbol, { cost, quantity, avgBuyPrice, realizedProfit }]) => (
                   <SymbolSummaryItem
@@ -838,7 +827,7 @@ export default function Page({ params }: Prop) {
       <Dialog open={!!confiDelete} onOpenChange={() => setConfiDelete(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confi Delete</DialogTitle>
+            <DialogTitle>Confirm Delete</DialogTitle>
           </DialogHeader>
           <p>
             Are you sure you want to delete{" "}

@@ -1,20 +1,11 @@
-// or for NextAuth v4.29+:
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { auth } from "@/auth"
 
-// Custom middleware for protecting routes
-export function middleware(req: NextRequest) {
-  const token = req.cookies.get("next-auth.session-token") || req.cookies.get("__Secure-next-auth.session-token");
+export default auth((req) => {
+  const isAuth = !!req.auth
+  const isPortfolioPage = req.nextUrl.pathname.startsWith('/portfolio')
 
-  // If no token, redirect to sign-in
-  if (!token) {
-    return NextResponse.redirect(new URL("/sign-in", req.url));
+  if (isPortfolioPage && !isAuth) {
+    const signInUrl = new URL('/sign-in', req.url)
+    return Response.redirect(signInUrl)
   }
-
-  // If token exists, continue
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: ["/((?!api|_next|static|favicon.ico|sign-in).*)"],
-};
+})

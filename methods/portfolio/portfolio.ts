@@ -1,9 +1,13 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { requireAuthAndUserMatch, requireAuthAndPortfolioOwnership } from "@/lib/auth-utils";
 
 // Get all portfolios for a user
 export async function getPortfolios(userId: string) {
+  // Verify user is authenticated and matches the provided userId
+  await requireAuthAndUserMatch(userId);
+
   return await prisma.portfolio.findMany({
     where: { userId },
     include: {
@@ -12,6 +16,9 @@ export async function getPortfolios(userId: string) {
   });
 }
 export async function getPortfolioById(id: string) {
+  // Verify user is authenticated and owns the portfolio
+  await requireAuthAndPortfolioOwnership(id);
+
   try {
     const portfolio = await prisma.portfolio.findUnique({
       where: { id },
@@ -35,6 +42,9 @@ export async function createPortfolio(
   name: string,
   description?: string
 ) {
+  // Verify user is authenticated and matches the provided userId
+  await requireAuthAndUserMatch(userId);
+
   return await prisma.portfolio.create({
     data: {
       userId,
@@ -52,6 +62,9 @@ export async function updatePortfolio(
     description?: string;
   }
 ) {
+  // Verify user is authenticated and owns the portfolio
+  await requireAuthAndPortfolioOwnership(id);
+
   return await prisma.portfolio.update({
     where: { id },
     data: {
@@ -63,6 +76,9 @@ export async function updatePortfolio(
 
 // Delete portfolio
 export async function deletePortfolio(id: string) {
+  // Verify user is authenticated and owns the portfolio
+  await requireAuthAndPortfolioOwnership(id);
+
   await prisma.trade.deleteMany({
     where: { portfolioId: id }, // cleanup trades first if cascade isn't set
   });

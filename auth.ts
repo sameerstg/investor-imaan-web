@@ -7,7 +7,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
 
   providers: [Google],
-  session: { strategy: "jwt" },
+  session: { strategy: "database" },
   pages: {
     signIn: "/sign-in",
   },
@@ -72,15 +72,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       return true;
     },
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id; // attach user id into JWT
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user && token.id) {
-        session.user.id = token.id as string;
+    async session({ session, user }) {
+      if (session.user) {
+        session.user.id = user.id;
       }
       return session;
     },

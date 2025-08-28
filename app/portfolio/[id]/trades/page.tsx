@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPortfolioById } from "@/methods/portfolio/portfolio";
 import { Trade } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Search } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -70,6 +70,9 @@ export default function AllTradesPage({ params }: Prop) {
     fees: 0,
     tradeDate: new Date().toISOString().slice(0, 16),
   });
+  const [sortField, setSortField] = useState<'symbol' | 'date'>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [searchTerm, setSearchTerm] = useState('');
   const tradesPerPage = 20;
   const router = useRouter();
 
@@ -83,10 +86,52 @@ export default function AllTradesPage({ params }: Prop) {
       .finally(() => setLoading(false));
   }, [params.id]);
 
-  const totalPages = Math.ceil(trades.length / tradesPerPage);
+  const filteredAndSortedTrades = useMemo(() => {
+    // First filter by search term
+    const filtered = searchTerm
+      ? trades.filter(trade =>
+          trade.symbol.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      : trades;
+
+    // Then sort the filtered results
+    return [...filtered].sort((a, b) => {
+      let comparison = 0;
+      
+      if (sortField === 'symbol') {
+        comparison = a.symbol.localeCompare(b.symbol);
+      } else if (sortField === 'date') {
+        comparison = new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime();
+      }
+      
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [trades, searchTerm, sortField, sortDirection]);
+
+  const handleSort = useCallback((field: 'symbol' | 'date') => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setCurrentPage(1); // Reset to first page when sorting changes
+  }, [sortField]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchTerm(value);
+    setCurrentPage(1); // Reset to first page when search changes
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    setSearchTerm('');
+    setCurrentPage(1);
+  }, []);
+
+  const totalPages = Math.ceil(filteredAndSortedTrades.length / tradesPerPage);
   const startIndex = (currentPage - 1) * tradesPerPage;
   const endIndex = startIndex + tradesPerPage;
-  const paginatedTrades = trades.slice(startIndex, endIndex);
+  const paginatedTrades = filteredAndSortedTrades.slice(startIndex, endIndex);
 
   const goToPage = useCallback(
     (page: number) => {
@@ -94,6 +139,11 @@ export default function AllTradesPage({ params }: Prop) {
     },
     [totalPages]
   );
+
+  const getSortIcon = (field: 'symbol' | 'date') => {
+    if (sortField !== field) return <ArrowUpDown className="h-4 w-4" />;
+    return sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />;
+  };
 
   const handleDelete = async (trade: Trade) => {
     setDeleting(true);
@@ -154,6 +204,51 @@ export default function AllTradesPage({ params }: Prop) {
             Back to Portfolio
           </Button>
         </Link>
+      </div>
+      
+      {/* Search and Sort Controls */}
+      <div className="flex flex-col sm:flex-row gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <div className="flex-1">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              type="text"
+              placeholder="Search by symbol..."
+              value={searchTerm}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="pl-10 pr-10"
+            />
+            {searchTerm && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearSearch}
+                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0 hover:bg-gray-200"
+              >
+                ×
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</span>
+          <Button
+            variant={sortField === 'symbol' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => handleSort('symbol')}
+            className="flex items-center gap-2"
+          >
+            Symbol {getSortIcon('symbol')}
+          </Button>
+          <Button
+            variant={sortField === 'date' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => handleSort('date')}
+            className="flex items-center gap-2"
+          >
+            Date {getSortIcon('date')}
+          </Button>
+        </div>
       </div>
       {loading ? (
         <div className="space-y-4">
@@ -227,7 +322,7 @@ export default function AllTradesPage({ params }: Prop) {
                 <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="text-sm text-gray-500">
                     Showing {startIndex + 1} to{" "}
-                    {Math.min(endIndex, trades.length)} of {trades.length} trades
+                    {Math.min(endIndex, filteredAndSortedTrades.length)} of {filteredAndSortedTrades.length} trades
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
@@ -270,7 +365,12 @@ export default function AllTradesPage({ params }: Prop) {
               )}
             </>
           ) : (
-            <p className="text-gray-500 text-center py-4">No trades found.</p>
+            <p className="text-gray-500 text-center py-4">
+              {searchTerm 
+                ? `No trades found for "${searchTerm}"`
+                : "No trades found."
+              }
+            </p>
           )}
         </>
       )}
