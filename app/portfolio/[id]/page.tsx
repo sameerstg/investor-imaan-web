@@ -19,7 +19,6 @@ import { Loader2, Download, RefreshCw, ArrowUp, ArrowDown } from "lucide-react";
 import { Trade } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
-import pLimit from "p-limit";
 import Link from "next/link";
 import StockChart from "@/components/StockChart";
 import TimeSeriesChart from "@/components/TimeSeriesChart";
@@ -58,9 +57,10 @@ interface SymbolSummaryItemProps {
   selectedSymbol: string | null;
   visibleCharts: Record<string, boolean>;
   toggleChart: (symbol: string) => void;
+  trades: Trade[];
 }
 
-const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedProfit, currentPrice, isLoadingPrice, selectedSymbol, visibleCharts, toggleChart }: SymbolSummaryItemProps) => {
+const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedProfit, currentPrice, isLoadingPrice, selectedSymbol, visibleCharts, toggleChart, trades }: SymbolSummaryItemProps) => {
   const unrealizedProfit = currentPrice && quantity > 0 ? currentPrice * quantity - cost : 0;
   const totalProfit = unrealizedProfit + realizedProfit;
   const percentProfit = cost !== 0 ? (totalProfit / Math.abs(cost)) * 100 : 0;
@@ -146,7 +146,11 @@ const SymbolSummaryItem = memo(({ symbol, cost, quantity, avgBuyPrice, realizedP
       </li>
       {visibleCharts[symbol] && (
         <li className="py-4">
-          <StockChart symbol={symbol} companyName={symbol} />
+          <StockChart 
+            symbol={symbol} 
+            companyName={symbol} 
+            trades={trades.filter(trade => trade.symbol === symbol)}
+          />
         </li>
       )}
     </>
@@ -186,7 +190,7 @@ export default function Page({ params }: Prop) {
   const [price, setPrice] = useState(0);
   const [fees, setFees] = useState(0);
   const [visibleCharts, setVisibleCharts] = useState<Record<string, boolean>>({});
-  const [pnlData, setPnlData] = useState<{ date: string; pnl: number }[]>([]);
+  const [pnlData, setPnlData] = useState<{ date: string; pnl: number; totalValue: number }[]>([]);
 
   const toggleChart = useCallback((symbol: string) => {
     setVisibleCharts(prev => ({
@@ -311,8 +315,9 @@ export default function Page({ params }: Prop) {
   const totalPnLPercent = totalCost !== 0 ? (totalPnL / Math.abs(totalCost)) * 100 : 0;
 
   const calculatePnLHistory = useCallback(() => {
-    const pnlHistory: { date: string; pnl: number }[] = [];
+    const pnlHistory: { date: string; pnl: number; totalValue: number }[] = [];
     let runningPnL = 0;
+    let runningCost = 0;
 
     // Sort trades by date
     const sortedTrades = [...trades].sort((a, b) =>
@@ -330,6 +335,7 @@ export default function Page({ params }: Prop) {
         }
         holdings[trade.symbol].quantity += trade.quantity;
         holdings[trade.symbol].totalCost += (trade.quantity * trade.price) + trade.fees;
+        runningCost += (trade.quantity * trade.price) + trade.fees;
       } else {
         // SELL
         const avgBuyPrice = holdings[trade.symbol]?.totalCost / holdings[trade.symbol]?.quantity || 0;
@@ -355,19 +361,56 @@ export default function Page({ params }: Prop) {
         }
       });
 
+      const totalValue = runningCost + runningPnL + unrealizedPnL;
       pnlHistory.push({
         date,
-        pnl: runningPnL + unrealizedPnL
+        pnl: runningPnL + unrealizedPnL,
+        totalValue
       });
     });
 
     return pnlHistory;
   }, [trades, currentPrices]);
 
+  const calculateCostHistory = useCallback(() => {
+    const costHistory: { date: string; cost: number }[] = [];
+    let runningCost = 0;
+
+    // Sort trades by date
+    const sortedTrades = [...trades].sort((a, b) =>
+      new Date(a.tradeDate).getTime() - new Date(b.tradeDate).getTime()
+    );
+
+    sortedTrades.forEach(trade => {
+      const date = new Date(trade.tradeDate).toISOString().split('T')[0];
+
+      if (trade.type === 'BUY') {
+        runningCost += (trade.quantity * trade.price) + trade.fees;
+      } else {
+        // For SELL, we don't reduce cost as it's already accounted for in the buy
+        // The cost represents the total investment made
+      }
+
+      costHistory.push({
+        date,
+        cost: runningCost
+      });
+    });
+
+    return costHistory;
+  }, [trades]);
+
   // Update PnL data when trades or prices change
   useEffect(() => {
     setPnlData(calculatePnLHistory());
   }, [calculatePnLHistory]);
+
+  const [costData, setCostData] = useState<{ date: string; cost: number }[]>([]);
+
+  // Update cost data when trades change
+  useEffect(() => {
+    setCostData(calculateCostHistory());
+  }, [calculateCostHistory]);
 
   useEffect(() => {
     setSymbolSummary(summary);
@@ -640,7 +683,7 @@ export default function Page({ params }: Prop) {
           <div className="bg-white shadow-sm rounded-lg p-6">
             <h1 className="text-2xl font-bold text-gray-800">{portfolio?.name}</h1>
             <p className="text-gray-600 mt-1">{portfolio?.description}</p>
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-gray-100 rounded-lg p-4">
                 <div className="text-sm text-gray-600 mb-1">Total Portfolio Cost</div>
                 <div className="text-2xl font-bold text-gray-900">
@@ -648,7 +691,7 @@ export default function Page({ params }: Prop) {
                 </div>
               </div>
               <div className={`rounded-lg p-4 ${totalPnL >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-                <div className="text-sm text-gray-600 mb-1">Total Profit/Loss</div>
+                <div className="text-sm text-gray-600 mb-1">Total Portfolio Value</div>
                 {isAnyPriceLoading ? (
                   <div className="flex items-center justify-start gap-2">
                     <Loader2 className="w-6 h-6 animate-spin text-gray-500" />
@@ -656,12 +699,21 @@ export default function Page({ params }: Prop) {
                   </div>
                 ) : (
                   <div className={`text-2xl font-bold ${totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {totalPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {(totalCost + totalPnL).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     <span className="text-sm ml-2">
                       ({totalPnLPercent >= 0 ? '+' : ''}{totalPnLPercent.toFixed(2)}%)
                     </span>
                   </div>
                 )}
+              </div>
+              <div className={`rounded-lg p-4 ${totalPnL >= 0 ? 'bg-green-100 border-green-200' : 'bg-red-100 border-red-200'} border-2`}>
+                <div className="text-sm text-gray-600 mb-1">Total Profit/Loss</div>
+                <div className={`text-3xl font-bold ${totalPnL >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  {totalPnL >= 0 ? '+' : ''}{totalPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-sm text-gray-500 mt-1">
+                  {totalPnLPercent >= 0 ? '+' : ''}{totalPnLPercent.toFixed(2)}% return
+                </div>
               </div>
             </div>
           </div>
@@ -671,12 +723,15 @@ export default function Page({ params }: Prop) {
             <Skeleton className="h-64 w-full rounded-lg" />
           ) : (
             <TimeSeriesChart
-              title="Portfolio PnL"
-              dayData={pnlData.map(d => ({ x: d.date, y: d.pnl.toFixed(2) })) as any[]}
-              allTimeData={pnlData.map(d => ({ x: d.date, y: d.pnl.toFixed(2) })) as any[]}
-              yAxisTitle="Profit/Loss"
-              lineColor={totalPnL >= 0 ? "#16a34a" : "#dc2626"}
-              fillColor={totalPnL >= 0 ? "rgba(22, 163, 74, 0.5)" : "rgba(220, 38, 38, 0.5)"}
+              title={`Portfolio Value ${totalPnL >= 0 ? '(+' : '('}${totalPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`}
+              dayData={pnlData.map(d => ({ x: d.date, y: d.totalValue.toFixed(2) })) as any[]}
+              allTimeData={pnlData.map(d => ({ x: d.date, y: d.totalValue.toFixed(2) })) as any[]}
+              costData={costData.map(d => ({ x: d.date, y: d.cost.toFixed(2) })) as any[]}
+              showCostLine={true}
+              profitAmount={totalPnL}
+              yAxisTitle="Portfolio Value & Cost"
+              lineColor="#16a34a"
+              fillColor="rgba(22, 163, 74, 0.5)"
             />
           )}
 
@@ -706,6 +761,7 @@ export default function Page({ params }: Prop) {
                     selectedSymbol={selectedSymbol}
                     visibleCharts={visibleCharts}
                     toggleChart={toggleChart}
+                    trades={trades}
                   />
                 ))}
               </ul>

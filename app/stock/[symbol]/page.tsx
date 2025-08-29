@@ -1,15 +1,15 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
-import {  GetCompanyName, GetCompanyReports } from '@/methods/stocks';
+import { GetCompanyName, GetCompanyReports } from '@/methods/stocks';
 import FinancialReports from '@/components/FinancialReports';
 import StockChart from '@/components/StockChart';
-import { GetAllTimeData, GetDayDataCached, GetDayDataRealtime } from '@/methods/stockPrice';
 
-const StockDetailsPage: React.FC = () => {
-  const { symbol } = useParams<{ symbol: string }>();
-  const [dayData, setDayData] = useState<TimeSeriesData[]>([]);
-  const [allTimeData, setAllTimeData] = useState<TimeSeriesData[]>([]);
+interface Prop {
+  params: Promise<{ symbol: string }>;
+}
+
+const StockDetailsPage: React.FC<Prop> = ({ params }) => {
+  const [symbol, setSymbol] = useState<string>('');
   const [companyName, setCompanyName] = useState<string>('Loading...');
   const [reports, setReports] = useState<CompanyReport | null>(null);
   const [isLoadingRealtime, setIsLoadingRealtime] = useState<boolean>(false);
@@ -17,38 +17,28 @@ const StockDetailsPage: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch cached day data first for quick rendering
-        const cachedDayData = await GetDayDataCached(symbol);
-        if (cachedDayData) {
-          setDayData(cachedDayData as TimeSeriesData[]);
-        }
+        const resolvedParams = await params;
+        const symbolValue = resolvedParams.symbol;
+        setSymbol(symbolValue);
 
         // Fetch other data in parallel
-        const [name, allTimeData, reportsData] = await Promise.all([
-          GetCompanyName(symbol),
-          GetAllTimeData(symbol),
-          GetCompanyReports(symbol),
+        const [name, reportsData] = await Promise.all([
+          GetCompanyName(symbolValue),
+          GetCompanyReports(symbolValue),
         ]);
 
         setCompanyName(name);
-        setAllTimeData(allTimeData as TimeSeriesData[]);
         setReports(reportsData);
 
-        // Fetch real-time day data in the background
-        setIsLoadingRealtime(true);
-        const realtimeDayData = await GetDayDataRealtime(symbol);
-        setDayData(realtimeDayData as TimeSeriesData[]);
+        // Note: StockChart component will fetch its own data
         setIsLoadingRealtime(false);
       } catch (error) {
         console.error('Error fetching data:', error);
         setReports({ tableHtml: '' }); // Fallback for reports
-        if (!dayData.length) {
-          setDayData([]); // Ensure dayData is empty if no cache and real-time fails
-        }
       }
     };
     fetchData();
-  }, [symbol]);
+  }, [params]);
 
   return (
     <div className="container mx-auto p-6">
@@ -58,8 +48,6 @@ const StockDetailsPage: React.FC = () => {
       <StockChart
         symbol={symbol}
         companyName={companyName}
-        dayData={dayData}
-        allTimeData={allTimeData}
       />
       <FinancialReports reports={reports} />
     </div>
@@ -67,12 +55,6 @@ const StockDetailsPage: React.FC = () => {
 };
 
 export default StockDetailsPage;
-
-export interface TimeSeriesData {
-  timestamp: number;
-  price: number;
-  volume: number;
-}
 
 export interface CompanyReport {
   tableHtml: string; // HTML string of the table

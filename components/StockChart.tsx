@@ -17,9 +17,17 @@ interface TimeSeriesData {
 interface StockChartProps {
   symbol: string;
   companyName: string;
+  trades?: Array<{
+    symbol: string;
+    type: 'BUY' | 'SELL';
+    quantity: number;
+    price: number;
+    fees: number;
+    tradeDate: Date | string;
+  }>;
 }
 
-const StockChart: React.FC<StockChartProps> = ({ symbol, companyName }) => {
+const StockChart: React.FC<StockChartProps> = ({ symbol, companyName, trades = [] }) => {
   const [timeRange, setTimeRange] = useState<'1H' | '1D' | '1W' | '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'All'>('1D');
   const [chartType, setChartType] = useState<'line' | 'candlestick'>('line');
   const [dayData, setDayData] = useState<TimeSeriesData[]>([]);
@@ -113,6 +121,40 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName }) => {
     y: d.price,
   }));
 
+  // Create trade annotations
+  const tradeAnnotations = trades
+    .filter(trade => trade.symbol === symbol)
+    .map(trade => {
+      const tradeDate = new Date(trade.tradeDate);
+      return {
+        x: tradeDate.getTime(),
+        y: trade.price,
+        marker: {
+          size: 6,
+          fillColor: trade.type === 'BUY' ? '#10B981' : '#EF4444',
+          strokeColor: '#FFFFFF',
+          strokeWidth: 2,
+          shape: 'circle'
+        },
+        label: {
+          text: trade.type === 'BUY' ? 'B' : 'S',
+          style: {
+            color: '#FFFFFF',
+            background: trade.type === 'BUY' ? '#10B981' : '#EF4444',
+            fontSize: '12px',
+            fontWeight: 'bold',
+            padding: {
+              left: 6,
+              right: 6,
+              top: 4,
+              bottom: 4
+            }
+          },
+          offsetY: trade.type === 'BUY' ? -25 : 25
+        }
+      };
+    });
+
   const chartOptions: ApexOptions = {
     chart: {
       type: chartType,
@@ -148,6 +190,9 @@ const StockChart: React.FC<StockChartProps> = ({ symbol, companyName }) => {
     stroke: {
       curve: 'smooth',
       width: chartType === 'line' ? 2 : 1,
+    },
+    annotations: {
+      points: tradeAnnotations
     },
   };
 

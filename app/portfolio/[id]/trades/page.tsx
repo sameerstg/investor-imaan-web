@@ -32,7 +32,7 @@ import { updateTrade } from "@/methods/trade/trade";
 import { Loader2 } from "lucide-react";
 
 interface Prop {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 interface TradeInput {
@@ -73,18 +73,28 @@ export default function AllTradesPage({ params }: Prop) {
   const [sortField, setSortField] = useState<'symbol' | 'date'>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [searchTerm, setSearchTerm] = useState('');
+  const [portfolioId, setPortfolioId] = useState<string>('');
   const tradesPerPage = 20;
   const router = useRouter();
 
   useEffect(() => {
-    setLoading(true);
-    getPortfolioById(params.id)
-      .then((port) => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const resolvedParams = await params;
+        setPortfolioId(resolvedParams.id);
+        const port = await getPortfolioById(resolvedParams.id);
         setPortfolio(port);
         setTrades(port?.Trade || []);
-      })
-      .finally(() => setLoading(false));
-  }, [params.id]);
+      } catch (error) {
+        console.error("Failed to fetch portfolio:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [params]);
 
   const filteredAndSortedTrades = useMemo(() => {
     // First filter by search term
@@ -195,7 +205,7 @@ export default function AllTradesPage({ params }: Prop) {
         <h1 className="text-2xl font-bold ">
           All Trades {portfolio?.name ? `- ${portfolio.name}` : ""}
         </h1>
-        <Link href={`/portfolio/${params.id}`} passHref>
+        <Link href={`/portfolio/${portfolioId}`} passHref>
           <Button
             variant="outline"
             className="border-gray-400  hover:bg-gray-100 font-semibold"
